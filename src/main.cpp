@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -43,7 +44,7 @@ bool has_flag(const std::vector<std::string>& args, const std::string& flag) {
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY] [--top N]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming] [--top N] [--json]\n";
 }
 
 }  // namespace
@@ -66,10 +67,12 @@ int main(int argc, char** argv) {
     const bool show_stats = has_flag(args, "--stats");
     const bool show_stats_json = has_flag(args, "--stats-json");
     const std::string predict_match_key = get_arg_value(args, "--predict");
+    const bool predict_upcoming = has_flag(args, "--predict-upcoming");
+    const bool output_json = has_flag(args, "--json");
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
-        && predict_match_key.empty()) {
+        && predict_match_key.empty() && !predict_upcoming) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -160,7 +163,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (!predict_match_key.empty()) {
+    if (!predict_match_key.empty() || predict_upcoming) {
         nlohmann::json matches = client.get_event_matches(event_key);
         if (matches.empty()) {
             std::cerr << "Failed to fetch event matches for " << event_key << ".\n";
@@ -174,27 +177,71 @@ int main(int argc, char** argv) {
         }
 
         nlohmann::json match;
-        for (const auto& entry : matches) {
-            if (!entry.contains("key")) {
-                continue;
+        if (!predict_match_key.empty()) {
+            for (const auto& entry : matches) {
+                if (!entry.contains("key")) {
+                    continue;
+                }
+                if (entry["key"].is_string() && entry["key"].get<std::string>() == predict_match_key) {
+                    match = entry;
+                    break;
+                }
             }
-            if (entry["key"].is_string() && entry["key"].get<std::string>() == predict_match_key) {
-                match = entry;
-                break;
-            }
-        }
 
-        if (match.is_null()) {
-            std::cerr << "Match key not found: " << predict_match_key << "\n";
-            return 1;
+            if (match.is_null()) {
+                std::cerr << "Match key not found: " << predict_match_key << "\n";
+                return 1;
+            }
+        } else {
+            double best_time = std::numeric_limits<double>::max();
+            for (const auto& entry : matches) {
+                if (!entry.contains("alliances") || !entry["alliances"].is_object()) {
+                    continue;
+                }
+                const nlohmann::json& alliances = entry["alliances"];
+                if (!alliances.contains("red") || !alliances.contains("blue")) {
+                    continue;
+                }
+                int red_score = alliances["red"].value("score", -1);
+                int blue_score = alliances["blue"].value("score", -1);
+                if (red_score >= 0 || blue_score >= 0) {
+                    continue;
+                }
+
+                double time = entry.value("time", 0.0);
+                if (time <= 0.0) {
+                    continue;
+                }
+                if (time < best_time) {
+                    best_time = time;
+                    match = entry;
+                }
+            }
+
+            if (match.is_null()) {
+                std::cerr << "No upcoming match found for " << event_key << ".\n";
+                return 1;
+            }
         }
 
         MatchPrediction prediction = predict_match(match, stats);
-        std::cout << "Prediction for " << predict_match_key << ":\n";
-        std::cout << "  red_estimate=" << prediction.red_score_estimate
-                  << " blue_estimate=" << prediction.blue_score_estimate << "\n";
-        std::cout << "  red_win_prob=" << prediction.red_win_probability
-                  << " blue_win_prob=" << prediction.blue_win_probability << "\n";
+        std::string match_key = match.value("key", "");
+        if (output_json) {
+            nlohmann::json output = {
+                {"match_key", match_key},
+                {"red_score_estimate", prediction.red_score_estimate},
+                {"blue_score_estimate", prediction.blue_score_estimate},
+                {"red_win_probability", prediction.red_win_probability},
+                {"blue_win_probability", prediction.blue_win_probability}
+            };
+            std::cout << output.dump(2) << "\n";
+        } else {
+            std::cout << "Prediction for " << match_key << ":\n";
+            std::cout << "  red_estimate=" << prediction.red_score_estimate
+                      << " blue_estimate=" << prediction.blue_score_estimate << "\n";
+            std::cout << "  red_win_prob=" << prediction.red_win_probability
+                      << " blue_win_prob=" << prediction.blue_win_probability << "\n";
+        }
     }
 
     return 0;
