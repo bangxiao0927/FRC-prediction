@@ -140,6 +140,7 @@ Examples:
 ./build/frc_prediction --event 2024casj --rankings
 ./build/frc_prediction --event 2024casj --teams
 ./build/frc_prediction --event 2024casj --stats
+./build/frc_prediction --event 2024casj --stats --top 10
 ```
 
 ## Roadmap

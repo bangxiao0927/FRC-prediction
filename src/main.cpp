@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <algorithm>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -19,6 +20,18 @@ std::string get_arg_value(const std::vector<std::string>& args, const std::strin
     return "";
 }
 
+int get_arg_int(const std::vector<std::string>& args, const std::string& flag, int fallback) {
+    std::string value = get_arg_value(args, flag);
+    if (value.empty()) {
+        return fallback;
+    }
+    try {
+        return std::stoi(value);
+    } catch (const std::exception&) {
+        return fallback;
+    }
+}
+
 bool has_flag(const std::vector<std::string>& args, const std::string& flag) {
     for (const std::string& arg : args) {
         if (arg == flag) {
@@ -29,7 +42,7 @@ bool has_flag(const std::vector<std::string>& args, const std::string& flag) {
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats] [--top N]\n";
 }
 
 }  // namespace
@@ -50,6 +63,7 @@ int main(int argc, char** argv) {
     const bool show_rankings = has_flag(args, "--rankings");
     const bool show_teams = has_flag(args, "--teams");
     const bool show_stats = has_flag(args, "--stats");
+    const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats) {
         print_usage();
@@ -107,8 +121,16 @@ int main(int argc, char** argv) {
             return 1;
         }
 
+        std::vector<std::pair<std::string, TeamStats>> ordered(stats.begin(), stats.end());
+        std::sort(ordered.begin(), ordered.end(), [](const auto& left, const auto& right) {
+            return left.second.average_score > right.second.average_score;
+        });
+
         std::cout << "Team Stats (" << event_key << "):\n";
-        for (const auto& entry : stats) {
+        int limit = top_count > 0 ? std::min(top_count, static_cast<int>(ordered.size()))
+                                  : static_cast<int>(ordered.size());
+        for (int index = 0; index < limit; ++index) {
+            const auto& entry = ordered[index];
             const TeamStats& team_stats = entry.second;
             std::cout << "  " << entry.first
                       << " | matches=" << team_stats.matches_played
