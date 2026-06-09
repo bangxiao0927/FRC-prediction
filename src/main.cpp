@@ -42,7 +42,7 @@ bool has_flag(const std::vector<std::string>& args, const std::string& flag) {
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats] [--top N]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json] [--top N]\n";
 }
 
 }  // namespace
@@ -63,9 +63,10 @@ int main(int argc, char** argv) {
     const bool show_rankings = has_flag(args, "--rankings");
     const bool show_teams = has_flag(args, "--teams");
     const bool show_stats = has_flag(args, "--stats");
+    const bool show_stats_json = has_flag(args, "--stats-json");
     const int top_count = get_arg_int(args, "--top", 0);
 
-    if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats) {
+    if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -108,7 +109,7 @@ int main(int argc, char** argv) {
         std::cout << "Event Teams (" << event_key << "): " << teams.dump(2) << "\n";
     }
 
-    if (show_stats) {
+    if (show_stats || show_stats_json) {
         nlohmann::json matches = client.get_event_matches(event_key);
         if (matches.empty()) {
             std::cerr << "Failed to fetch event matches for " << event_key << ".\n";
@@ -126,17 +127,33 @@ int main(int argc, char** argv) {
             return left.second.average_score > right.second.average_score;
         });
 
-        std::cout << "Team Stats (" << event_key << "):\n";
         int limit = top_count > 0 ? std::min(top_count, static_cast<int>(ordered.size()))
                                   : static_cast<int>(ordered.size());
-        for (int index = 0; index < limit; ++index) {
-            const auto& entry = ordered[index];
-            const TeamStats& team_stats = entry.second;
-            std::cout << "  " << entry.first
-                      << " | matches=" << team_stats.matches_played
-                      << " total=" << team_stats.total_score
-                      << " avg=" << team_stats.average_score
-                      << "\n";
+
+        if (show_stats_json) {
+            nlohmann::json output = nlohmann::json::array();
+            for (int index = 0; index < limit; ++index) {
+                const auto& entry = ordered[index];
+                const TeamStats& team_stats = entry.second;
+                output.push_back({
+                    {"team_key", entry.first},
+                    {"matches_played", team_stats.matches_played},
+                    {"total_score", team_stats.total_score},
+                    {"average_score", team_stats.average_score}
+                });
+            }
+            std::cout << output.dump(2) << "\n";
+        } else {
+            std::cout << "Team Stats (" << event_key << "):\n";
+            for (int index = 0; index < limit; ++index) {
+                const auto& entry = ordered[index];
+                const TeamStats& team_stats = entry.second;
+                std::cout << "  " << entry.first
+                          << " | matches=" << team_stats.matches_played
+                          << " total=" << team_stats.total_score
+                          << " avg=" << team_stats.average_score
+                          << "\n";
+            }
         }
     }
 
