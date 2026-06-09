@@ -1,0 +1,18 @@
+.DS_Store
+build/
+cmake-build-*/
+out/
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+config.json
+
+# Local data/cache generated while developing or scouting
+data/cache/
+data/raw/
+data/processed/
+
+# Editor files
+.idea/
+.vscode/

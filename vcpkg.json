@@ -1,0 +1,9 @@
+{
+  "name": "frc-prediction",
+  "version-string": "0.1.0",
+  "description": "FRC prediction and picklist assistant",
+  "dependencies": [
+    "cpr",
+    "nlohmann-json"
+  ]
+}
