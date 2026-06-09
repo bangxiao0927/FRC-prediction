@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "tba_client.h"
+#include "stats.h"
 
 namespace {
 
@@ -28,7 +29,7 @@ bool has_flag(const std::vector<std::string>& args, const std::string& flag) {
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats]\n";
 }
 
 }  // namespace
@@ -48,15 +49,15 @@ int main(int argc, char** argv) {
     const bool show_matches = has_flag(args, "--matches");
     const bool show_rankings = has_flag(args, "--rankings");
     const bool show_teams = has_flag(args, "--teams");
+    const bool show_stats = has_flag(args, "--stats");
 
-    if (!show_status && !show_matches && !show_rankings && !show_teams) {
+    if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
     }
 
-    const int cache_ttl_seconds = 60;
-    TbaClient client(config.tba_auth_key, config.cache_dir, cache_ttl_seconds);
+    TbaClient client(config.tba_auth_key, config.cache_dir, config.cache_ttl_seconds);
     if (show_status) {
         nlohmann::json status = client.get_status();
         if (status.empty()) {
@@ -91,6 +92,30 @@ int main(int argc, char** argv) {
             return 1;
         }
         std::cout << "Event Teams (" << event_key << "): " << teams.dump(2) << "\n";
+    }
+
+    if (show_stats) {
+        nlohmann::json matches = client.get_event_matches(event_key);
+        if (matches.empty()) {
+            std::cerr << "Failed to fetch event matches for " << event_key << ".\n";
+            return 1;
+        }
+
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches);
+        if (stats.empty()) {
+            std::cerr << "No stats computed for " << event_key << ".\n";
+            return 1;
+        }
+
+        std::cout << "Team Stats (" << event_key << "):\n";
+        for (const auto& entry : stats) {
+            const TeamStats& team_stats = entry.second;
+            std::cout << "  " << entry.first
+                      << " | matches=" << team_stats.matches_played
+                      << " total=" << team_stats.total_score
+                      << " avg=" << team_stats.average_score
+                      << "\n";
+        }
     }
 
     return 0;

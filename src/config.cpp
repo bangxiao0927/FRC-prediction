@@ -31,6 +31,7 @@ Config load_from_file(const std::string& path) {
     config.tba_auth_key = json.value("tba_auth_key", "");
     config.default_event_key = json.value("default_event_key", "");
     config.cache_dir = json.value("cache_dir", "");
+    config.cache_ttl_seconds = json.value("cache_ttl_seconds", 60);
     return config;
 }
 
@@ -60,6 +61,9 @@ Config load_config() {
     }
     if (merged.cache_dir.empty()) {
         merged.cache_dir = "data/cache";
+    }
+    if (merged.cache_ttl_seconds <= 0) {
+        merged.cache_ttl_seconds = 60;
     }
 
     return merged;

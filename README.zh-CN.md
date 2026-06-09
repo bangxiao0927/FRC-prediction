@@ -112,8 +112,9 @@ cp config.example.json config.json
 ```json
 {
   "tba_auth_key": "your_key_here",
- "default_event_key": "2024casj",
-  "cache_dir": "data/cache"
+  "default_event_key": "2024casj",
+  "cache_dir": "data/cache",
+  "cache_ttl_seconds": 60
 }
 ```
 
@@ -142,6 +143,7 @@ cmake --build build
 ./build/frc_prediction --event 2024casj --matches
 ./build/frc_prediction --event 2024casj --rankings
 ./build/frc_prediction --event 2024casj --teams
+./build/frc_prediction --event 2024casj --stats
 ```
 
 ## 开发路线
