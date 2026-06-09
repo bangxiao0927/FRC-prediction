@@ -54,7 +54,8 @@ std::vector<std::string> get_team_keys(const nlohmann::json& alliance) {
 }
 
 double alliance_confidence(const nlohmann::json& alliance,
-                           const std::map<std::string, TeamStats>& team_stats) {
+                           const std::map<std::string, TeamStats>& team_stats,
+                           int confidence_match_count) {
     if (!alliance.contains("team_keys") || !alliance["team_keys"].is_array()) {
         return 0.0;
     }
@@ -79,14 +80,15 @@ double alliance_confidence(const nlohmann::json& alliance,
     }
 
     double average_matches = total_matches / static_cast<double>(count);
-    double confidence = average_matches / 6.0;
+    double confidence = average_matches / static_cast<double>(confidence_match_count);
     return std::clamp(confidence, 0.0, 1.0);
 }
 
 }  // namespace
 
 MatchPrediction predict_match(const nlohmann::json& match_json,
-                              const std::map<std::string, TeamStats>& team_stats) {
+                              const std::map<std::string, TeamStats>& team_stats,
+                              int confidence_match_count) {
     MatchPrediction prediction;
     if (!match_json.contains("alliances") || !match_json["alliances"].is_object()) {
         return prediction;
@@ -105,11 +107,13 @@ MatchPrediction predict_match(const nlohmann::json& match_json,
 
     prediction.red_score_estimate = average_alliance_score(red, team_stats);
     prediction.blue_score_estimate = average_alliance_score(blue, team_stats);
-    prediction.red_confidence = alliance_confidence(red, team_stats);
-    prediction.blue_confidence = alliance_confidence(blue, team_stats);
+    prediction.red_score_total_estimate = prediction.red_score_estimate * prediction.red_teams.size();
+    prediction.blue_score_total_estimate = prediction.blue_score_estimate * prediction.blue_teams.size();
+    prediction.score_diff_estimate = prediction.red_score_total_estimate - prediction.blue_score_total_estimate;
+    prediction.red_confidence = alliance_confidence(red, team_stats, confidence_match_count);
+    prediction.blue_confidence = alliance_confidence(blue, team_stats, confidence_match_count);
 
-    const double score_diff = prediction.red_score_estimate - prediction.blue_score_estimate;
-    const double red_prob = sigmoid(score_diff / 10.0);
+    const double red_prob = sigmoid(prediction.score_diff_estimate / 30.0);
     prediction.red_win_probability = red_prob;
     prediction.blue_win_probability = 1.0 - red_prob;
 

@@ -13,6 +13,9 @@ struct MatchPrediction {
     std::vector<std::string> blue_teams;
     double red_score_estimate = 0.0;
     double blue_score_estimate = 0.0;
+    double red_score_total_estimate = 0.0;
+    double blue_score_total_estimate = 0.0;
+    double score_diff_estimate = 0.0;
     double red_win_probability = 0.5;
     double blue_win_probability = 0.5;
     double red_confidence = 0.0;
@@ -20,4 +23,5 @@ struct MatchPrediction {
 };
 
 MatchPrediction predict_match(const nlohmann::json& match_json,
-                              const std::map<std::string, TeamStats>& team_stats);
+                              const std::map<std::string, TeamStats>& team_stats,
+                              int confidence_match_count);

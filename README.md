@@ -112,7 +112,8 @@ Edit `config.json`:
   "tba_auth_key": "your_key_here",
   "default_event_key": "2024casj",
   "cache_dir": "data/cache",
-  "cache_ttl_seconds": 60
+  "cache_ttl_seconds": 60,
+  "confidence_match_count": 6
 }
 ```
 

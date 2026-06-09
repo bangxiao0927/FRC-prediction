@@ -224,7 +224,7 @@ int main(int argc, char** argv) {
             }
         }
 
-        MatchPrediction prediction = predict_match(match, stats);
+        MatchPrediction prediction = predict_match(match, stats, config.confidence_match_count);
         std::string match_key = match.value("key", "");
         if (output_json) {
             nlohmann::json output = {
@@ -233,6 +233,9 @@ int main(int argc, char** argv) {
                 {"blue_teams", prediction.blue_teams},
                 {"red_score_estimate", prediction.red_score_estimate},
                 {"blue_score_estimate", prediction.blue_score_estimate},
+                {"red_score_total_estimate", prediction.red_score_total_estimate},
+                {"blue_score_total_estimate", prediction.blue_score_total_estimate},
+                {"score_diff_estimate", prediction.score_diff_estimate},
                 {"red_win_probability", prediction.red_win_probability},
                 {"blue_win_probability", prediction.blue_win_probability},
                 {"red_confidence", prediction.red_confidence},
@@ -259,6 +262,9 @@ int main(int argc, char** argv) {
             std::cout << "\n";
             std::cout << "  red_estimate=" << prediction.red_score_estimate
                       << " blue_estimate=" << prediction.blue_score_estimate << "\n";
+            std::cout << "  red_total=" << prediction.red_score_total_estimate
+                      << " blue_total=" << prediction.blue_score_total_estimate
+                      << " diff=" << prediction.score_diff_estimate << "\n";
             std::cout << "  red_win_prob=" << prediction.red_win_probability
                       << " blue_win_prob=" << prediction.blue_win_probability << "\n";
             std::cout << "  red_confidence=" << prediction.red_confidence

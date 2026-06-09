@@ -32,6 +32,7 @@ Config load_from_file(const std::string& path) {
     config.default_event_key = json.value("default_event_key", "");
     config.cache_dir = json.value("cache_dir", "");
     config.cache_ttl_seconds = json.value("cache_ttl_seconds", 60);
+    config.confidence_match_count = json.value("confidence_match_count", 6);
     return config;
 }
 
@@ -64,6 +65,9 @@ Config load_config() {
     }
     if (merged.cache_ttl_seconds <= 0) {
         merged.cache_ttl_seconds = 60;
+    }
+    if (merged.confidence_match_count <= 0) {
+        merged.confidence_match_count = 6;
     }
 
     return merged;
