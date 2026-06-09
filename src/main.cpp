@@ -228,6 +228,7 @@ int main(int argc, char** argv) {
             match,
             stats,
             config.confidence_match_count,
+            config.score_diff_scale,
             config.sigmoid_scale);
         std::string match_key = match.value("key", "");
         if (output_json) {

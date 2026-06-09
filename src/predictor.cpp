@@ -89,6 +89,7 @@ double alliance_confidence(const nlohmann::json& alliance,
 MatchPrediction predict_match(const nlohmann::json& match_json,
                               const std::map<std::string, TeamStats>& team_stats,
                               int confidence_match_count,
+                              double score_diff_scale,
                               double sigmoid_scale) {
     MatchPrediction prediction;
     if (!match_json.contains("alliances") || !match_json["alliances"].is_object()) {
@@ -114,7 +115,7 @@ MatchPrediction predict_match(const nlohmann::json& match_json,
     prediction.red_confidence = alliance_confidence(red, team_stats, confidence_match_count);
     prediction.blue_confidence = alliance_confidence(blue, team_stats, confidence_match_count);
 
-    const double red_prob = sigmoid(prediction.score_diff_estimate / sigmoid_scale);
+    const double red_prob = sigmoid((prediction.score_diff_estimate / score_diff_scale) * sigmoid_scale);
     prediction.red_win_probability = red_prob;
     prediction.blue_win_probability = 1.0 - red_prob;
 
