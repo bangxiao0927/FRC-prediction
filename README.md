@@ -128,10 +128,16 @@ cmake --build build
 ### 4. Run
 
 ```bash
-./build/frc_prediction
+./build/frc_prediction --status
 ```
 
-The current minimal example calls the TBA `/status` endpoint to verify HTTP and JSON parsing.
+Examples:
+
+```bash
+./build/frc_prediction --event 2024casj --matches
+./build/frc_prediction --event 2024casj --rankings
+./build/frc_prediction --event 2024casj --teams
+```
 
 ## Roadmap
 

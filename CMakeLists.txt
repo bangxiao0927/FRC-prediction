@@ -10,7 +10,9 @@ find_package(cpr CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 add_executable(frc_prediction
+    src/config.cpp
     src/main.cpp
+    src/tba_client.cpp
 )
 
 target_link_libraries(frc_prediction

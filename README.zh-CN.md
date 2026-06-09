@@ -132,10 +132,16 @@ cmake --build build
 ### 4. 运行
 
 ```bash
-./build/frc_prediction
+./build/frc_prediction --status
 ```
 
-当前最小示例会调用 TBA `/status` 接口，用于验证 API Key、网络请求和 JSON 解析是否正常。
+示例：
+
+```bash
+./build/frc_prediction --event 2024casj --matches
+./build/frc_prediction --event 2024casj --rankings
+./build/frc_prediction --event 2024casj --teams
+```
 
 ## 开发路线
 
