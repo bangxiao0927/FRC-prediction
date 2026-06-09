@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include "config.h"
+#include "predictor.h"
 #include "tba_client.h"
 #include "stats.h"
 
@@ -42,7 +43,7 @@ bool has_flag(const std::vector<std::string>& args, const std::string& flag) {
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json] [--top N]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY] [--top N]\n";
 }
 
 }  // namespace
@@ -64,9 +65,11 @@ int main(int argc, char** argv) {
     const bool show_teams = has_flag(args, "--teams");
     const bool show_stats = has_flag(args, "--stats");
     const bool show_stats_json = has_flag(args, "--stats-json");
+    const std::string predict_match_key = get_arg_value(args, "--predict");
     const int top_count = get_arg_int(args, "--top", 0);
 
-    if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json) {
+    if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
+        && predict_match_key.empty()) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -155,6 +158,43 @@ int main(int argc, char** argv) {
                           << "\n";
             }
         }
+    }
+
+    if (!predict_match_key.empty()) {
+        nlohmann::json matches = client.get_event_matches(event_key);
+        if (matches.empty()) {
+            std::cerr << "Failed to fetch event matches for " << event_key << ".\n";
+            return 1;
+        }
+
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches);
+        if (stats.empty()) {
+            std::cerr << "No stats computed for " << event_key << ".\n";
+            return 1;
+        }
+
+        nlohmann::json match;
+        for (const auto& entry : matches) {
+            if (!entry.contains("key")) {
+                continue;
+            }
+            if (entry["key"].is_string() && entry["key"].get<std::string>() == predict_match_key) {
+                match = entry;
+                break;
+            }
+        }
+
+        if (match.is_null()) {
+            std::cerr << "Match key not found: " << predict_match_key << "\n";
+            return 1;
+        }
+
+        MatchPrediction prediction = predict_match(match, stats);
+        std::cout << "Prediction for " << predict_match_key << ":\n";
+        std::cout << "  red_estimate=" << prediction.red_score_estimate
+                  << " blue_estimate=" << prediction.blue_score_estimate << "\n";
+        std::cout << "  red_win_prob=" << prediction.red_win_probability
+                  << " blue_win_prob=" << prediction.blue_win_probability << "\n";
     }
 
     return 0;

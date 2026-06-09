@@ -13,6 +13,7 @@ add_executable(frc_prediction
     src/cache.cpp
     src/config.cpp
     src/main.cpp
+    src/predictor.cpp
     src/stats.cpp
     src/tba_client.cpp
 )
