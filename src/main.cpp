@@ -229,18 +229,40 @@ int main(int argc, char** argv) {
         if (output_json) {
             nlohmann::json output = {
                 {"match_key", match_key},
+                {"red_teams", prediction.red_teams},
+                {"blue_teams", prediction.blue_teams},
                 {"red_score_estimate", prediction.red_score_estimate},
                 {"blue_score_estimate", prediction.blue_score_estimate},
                 {"red_win_probability", prediction.red_win_probability},
-                {"blue_win_probability", prediction.blue_win_probability}
+                {"blue_win_probability", prediction.blue_win_probability},
+                {"red_confidence", prediction.red_confidence},
+                {"blue_confidence", prediction.blue_confidence}
             };
             std::cout << output.dump(2) << "\n";
         } else {
             std::cout << "Prediction for " << match_key << ":\n";
+            std::cout << "  red_teams=";
+            for (size_t i = 0; i < prediction.red_teams.size(); ++i) {
+                if (i > 0) {
+                    std::cout << ",";
+                }
+                std::cout << prediction.red_teams[i];
+            }
+            std::cout << "\n";
+            std::cout << "  blue_teams=";
+            for (size_t i = 0; i < prediction.blue_teams.size(); ++i) {
+                if (i > 0) {
+                    std::cout << ",";
+                }
+                std::cout << prediction.blue_teams[i];
+            }
+            std::cout << "\n";
             std::cout << "  red_estimate=" << prediction.red_score_estimate
                       << " blue_estimate=" << prediction.blue_score_estimate << "\n";
             std::cout << "  red_win_prob=" << prediction.red_win_probability
                       << " blue_win_prob=" << prediction.blue_win_probability << "\n";
+            std::cout << "  red_confidence=" << prediction.red_confidence
+                      << " blue_confidence=" << prediction.blue_confidence << "\n";
         }
     }
 
