@@ -4,9 +4,11 @@
 
 #include <nlohmann/json.hpp>
 
+#include "cache.h"
+
 class TbaClient {
 public:
-    explicit TbaClient(std::string auth_key);
+    TbaClient(std::string auth_key, std::string cache_dir, int cache_ttl_seconds);
 
     nlohmann::json get_status();
     nlohmann::json get_event(const std::string& event_key);
@@ -19,4 +21,6 @@ private:
 
     std::string auth_key_;
     std::string base_url_;
+    int cache_ttl_seconds_;
+    FileCache cache_;
 };

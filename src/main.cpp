@@ -55,7 +55,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    TbaClient client(config.tba_auth_key);
+    const int cache_ttl_seconds = 60;
+    TbaClient client(config.tba_auth_key, config.cache_dir, cache_ttl_seconds);
     if (show_status) {
         nlohmann::json status = client.get_status();
         if (status.empty()) {

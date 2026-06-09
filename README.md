@@ -116,6 +116,7 @@ Edit `config.json`:
 ```
 
 `config.json` is ignored by Git to avoid leaking API keys.
+Responses are cached under `cache_dir` for a short TTL to reduce duplicate API calls.
 
 ### 3. Build
 

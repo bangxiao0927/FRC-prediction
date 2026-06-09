@@ -112,12 +112,13 @@ cp config.example.json config.json
 ```json
 {
   "tba_auth_key": "your_key_here",
-  "default_event_key": "2024casj",
+ "default_event_key": "2024casj",
   "cache_dir": "data/cache"
 }
 ```
 
 `config.json` 会被 Git 忽略，避免把 API Key 提交到仓库。
+响应会缓存到 `cache_dir`，以减少重复请求。
 
 ### 3. 构建
 
