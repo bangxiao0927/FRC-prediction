@@ -113,7 +113,9 @@ Edit `config.json`:
   "default_event_key": "2024casj",
   "cache_dir": "data/cache",
   "cache_ttl_seconds": 60,
-  "confidence_match_count": 6
+  "confidence_match_count": 6,
+  "sigmoid_scale": 30.0,
+  "model_version": "baseline-v1"
 }
 ```
 

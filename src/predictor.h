@@ -24,4 +24,5 @@ struct MatchPrediction {
 
 MatchPrediction predict_match(const nlohmann::json& match_json,
                               const std::map<std::string, TeamStats>& team_stats,
-                              int confidence_match_count);
+                              int confidence_match_count,
+                              double sigmoid_scale);

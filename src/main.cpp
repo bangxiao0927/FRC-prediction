@@ -224,11 +224,16 @@ int main(int argc, char** argv) {
             }
         }
 
-        MatchPrediction prediction = predict_match(match, stats, config.confidence_match_count);
+        MatchPrediction prediction = predict_match(
+            match,
+            stats,
+            config.confidence_match_count,
+            config.sigmoid_scale);
         std::string match_key = match.value("key", "");
         if (output_json) {
             nlohmann::json output = {
                 {"match_key", match_key},
+                {"model_version", config.model_version},
                 {"red_teams", prediction.red_teams},
                 {"blue_teams", prediction.blue_teams},
                 {"red_score_estimate", prediction.red_score_estimate},
@@ -244,6 +249,7 @@ int main(int argc, char** argv) {
             std::cout << output.dump(2) << "\n";
         } else {
             std::cout << "Prediction for " << match_key << ":\n";
+            std::cout << "  model_version=" << config.model_version << "\n";
             std::cout << "  red_teams=";
             for (size_t i = 0; i < prediction.red_teams.size(); ++i) {
                 if (i > 0) {

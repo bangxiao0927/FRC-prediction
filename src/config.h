@@ -8,6 +8,8 @@ struct Config {
     std::string cache_dir;
     int cache_ttl_seconds = 60;
     int confidence_match_count = 6;
+    double sigmoid_scale = 30.0;
+    std::string model_version = "baseline-v1";
 };
 
 Config load_config();

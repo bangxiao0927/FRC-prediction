@@ -33,6 +33,8 @@ Config load_from_file(const std::string& path) {
     config.cache_dir = json.value("cache_dir", "");
     config.cache_ttl_seconds = json.value("cache_ttl_seconds", 60);
     config.confidence_match_count = json.value("confidence_match_count", 6);
+    config.sigmoid_scale = json.value("sigmoid_scale", 30.0);
+    config.model_version = json.value("model_version", "baseline-v1");
     return config;
 }
 
@@ -68,6 +70,12 @@ Config load_config() {
     }
     if (merged.confidence_match_count <= 0) {
         merged.confidence_match_count = 6;
+    }
+    if (merged.sigmoid_scale <= 0.0) {
+        merged.sigmoid_scale = 30.0;
+    }
+    if (merged.model_version.empty()) {
+        merged.model_version = "baseline-v1";
     }
 
     return merged;
