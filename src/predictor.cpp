@@ -37,6 +37,21 @@ double average_alliance_score(const nlohmann::json& alliance,
     return total / static_cast<double>(count);
 }
 
+double event_average_score(const std::map<std::string, TeamStats>& team_stats) {
+    double total_score = 0.0;
+    int total_matches = 0;
+    for (const auto& entry : team_stats) {
+        total_score += static_cast<double>(entry.second.total_score);
+        total_matches += entry.second.matches_played;
+    }
+
+    if (total_matches == 0) {
+        return 0.0;
+    }
+
+    return total_score / static_cast<double>(total_matches);
+}
+
 struct AllianceSample {
     std::vector<std::string> teams;
     int team_count = 0;
@@ -130,10 +145,16 @@ MatchPrediction predict_match(const nlohmann::json& match_json,
     prediction.red_score_total_estimate = prediction.red_score_estimate * prediction.red_teams.size();
     prediction.blue_score_total_estimate = prediction.blue_score_estimate * prediction.blue_teams.size();
     prediction.score_diff_estimate = prediction.red_score_total_estimate - prediction.blue_score_total_estimate;
+    prediction.event_average_score = event_average_score(team_stats);
+    prediction.red_adjusted_average = prediction.red_score_estimate - prediction.event_average_score;
+    prediction.blue_adjusted_average = prediction.blue_score_estimate - prediction.event_average_score;
+    prediction.adjusted_score_diff_estimate =
+        (prediction.red_adjusted_average * prediction.red_teams.size())
+        - (prediction.blue_adjusted_average * prediction.blue_teams.size());
     prediction.red_confidence = red_sample.confidence;
     prediction.blue_confidence = blue_sample.confidence;
 
-    const double red_prob = sigmoid((prediction.score_diff_estimate / score_diff_scale) * sigmoid_scale);
+    const double red_prob = sigmoid((prediction.adjusted_score_diff_estimate / score_diff_scale) * sigmoid_scale);
     prediction.red_win_probability = red_prob;
     prediction.blue_win_probability = 1.0 - red_prob;
 

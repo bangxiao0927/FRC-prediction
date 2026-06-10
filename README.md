@@ -158,7 +158,7 @@ Default prediction output path when using --json without --output:
 data/predictions/<match_key>.json
 ```
 
-Prediction outputs now include team counts and average matches per alliance to explain confidence.
+Prediction outputs now include team counts, average matches per alliance, and adjusted averages relative to the event.
 ```
 
 ## Roadmap

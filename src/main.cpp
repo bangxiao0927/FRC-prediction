@@ -301,6 +301,10 @@ int main(int argc, char** argv) {
                 {"red_score_total_estimate", prediction.red_score_total_estimate},
                 {"blue_score_total_estimate", prediction.blue_score_total_estimate},
                 {"score_diff_estimate", prediction.score_diff_estimate},
+                {"event_average_score", prediction.event_average_score},
+                {"red_adjusted_average", prediction.red_adjusted_average},
+                {"blue_adjusted_average", prediction.blue_adjusted_average},
+                {"adjusted_score_diff_estimate", prediction.adjusted_score_diff_estimate},
                 {"red_win_probability", prediction.red_win_probability},
                 {"blue_win_probability", prediction.blue_win_probability},
                 {"red_confidence", prediction.red_confidence},
@@ -345,6 +349,10 @@ int main(int argc, char** argv) {
             output << "  red_total=" << prediction.red_score_total_estimate
                    << " blue_total=" << prediction.blue_score_total_estimate
                    << " diff=" << prediction.score_diff_estimate << "\n";
+            output << "  event_avg=" << prediction.event_average_score
+                   << " red_adj_avg=" << prediction.red_adjusted_average
+                   << " blue_adj_avg=" << prediction.blue_adjusted_average
+                   << " adj_diff=" << prediction.adjusted_score_diff_estimate << "\n";
             output << "  red_win_prob=" << prediction.red_win_probability
                    << " blue_win_prob=" << prediction.blue_win_probability << "\n";
             output << "  red_confidence=" << prediction.red_confidence

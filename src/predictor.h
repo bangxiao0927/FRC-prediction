@@ -22,6 +22,10 @@ struct MatchPrediction {
     double red_score_total_estimate = 0.0;
     double blue_score_total_estimate = 0.0;
     double score_diff_estimate = 0.0;
+    double event_average_score = 0.0;
+    double red_adjusted_average = 0.0;
+    double blue_adjusted_average = 0.0;
+    double adjusted_score_diff_estimate = 0.0;
     double red_win_probability = 0.5;
     double blue_win_probability = 0.5;
     double red_confidence = 0.0;
