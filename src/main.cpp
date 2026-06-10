@@ -6,6 +6,9 @@
 #include <sstream>
 #include <vector>
 
+#include <chrono>
+#include <ctime>
+
 #include <nlohmann/json.hpp>
 
 #include "config.h"
@@ -52,6 +55,20 @@ bool write_text_file(const std::string& path, const std::string& contents) {
     }
     file << contents;
     return true;
+}
+
+std::string current_timestamp_iso8601() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t time_now = std::chrono::system_clock::to_time_t(now);
+    std::tm utc_time{};
+#ifdef _WIN32
+    gmtime_s(&utc_time, &time_now);
+#else
+    gmtime_r(&time_now, &utc_time);
+#endif
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &utc_time);
+    return std::string(buffer);
 }
 
 bool write_stats_csv(const std::string& path,
@@ -447,8 +464,10 @@ int main(int argc, char** argv) {
 
         double mae = total_abs_error / static_cast<double>(evaluated);
         double accuracy = static_cast<double>(correct_winner) / static_cast<double>(evaluated);
+        const std::string timestamp = current_timestamp_iso8601();
         if (!eval_json_path.empty()) {
             nlohmann::json output = {
+                {"timestamp", timestamp},
                 {"event_key", event_key},
                 {"phase", phase_arg.empty() ? "all" : phase_arg},
                 {"matches", evaluated},
@@ -470,9 +489,10 @@ int main(int argc, char** argv) {
                 return 1;
             }
             if (write_header) {
-                file << "event_key,phase,matches,mae,winner_accuracy\n";
+                file << "timestamp,event_key,phase,matches,mae,winner_accuracy\n";
             }
-            file << event_key << ","
+            file << timestamp << ","
+                 << event_key << ","
                  << (phase_arg.empty() ? "all" : phase_arg) << ","
                  << evaluated << ","
                  << mae << ","
@@ -482,6 +502,7 @@ int main(int argc, char** argv) {
 
         if (eval_json_path.empty() && eval_csv_path.empty()) {
             std::cout << "Evaluation (" << event_key << "):\n";
+            std::cout << "  timestamp=" << timestamp << "\n";
             std::cout << "  phase=" << (phase_arg.empty() ? "all" : phase_arg) << "\n";
             std::cout << "  matches=" << evaluated << "\n";
             std::cout << "  mae=" << mae << "\n";
