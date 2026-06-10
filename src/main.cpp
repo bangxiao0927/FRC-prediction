@@ -463,12 +463,15 @@ int main(int argc, char** argv) {
         }
 
         if (!eval_csv_path.empty()) {
-            std::ofstream file(eval_csv_path);
+            bool write_header = !std::ifstream(eval_csv_path).good();
+            std::ofstream file(eval_csv_path, std::ios::app);
             if (!file) {
                 std::cerr << "Failed to write evaluation CSV to " << eval_csv_path << ".\n";
                 return 1;
             }
-            file << "event_key,phase,matches,mae,winner_accuracy\n";
+            if (write_header) {
+                file << "event_key,phase,matches,mae,winner_accuracy\n";
+            }
             file << event_key << ","
                  << (phase_arg.empty() ? "all" : phase_arg) << ","
                  << evaluated << ","
