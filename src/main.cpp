@@ -290,6 +290,12 @@ int main(int argc, char** argv) {
                 {"model_version", config.model_version},
                 {"red_teams", prediction.red_teams},
                 {"blue_teams", prediction.blue_teams},
+                {"red_team_count", prediction.red_team_count},
+                {"blue_team_count", prediction.blue_team_count},
+                {"red_total_matches", prediction.red_total_matches},
+                {"blue_total_matches", prediction.blue_total_matches},
+                {"red_average_matches", prediction.red_average_matches},
+                {"blue_average_matches", prediction.blue_average_matches},
                 {"red_score_estimate", prediction.red_score_estimate},
                 {"blue_score_estimate", prediction.blue_score_estimate},
                 {"red_score_total_estimate", prediction.red_score_total_estimate},
@@ -330,6 +336,10 @@ int main(int argc, char** argv) {
                 output << prediction.blue_teams[i];
             }
             output << "\n";
+            output << "  red_matches=" << prediction.red_total_matches
+                   << " blue_matches=" << prediction.blue_total_matches
+                   << " red_avg_matches=" << prediction.red_average_matches
+                   << " blue_avg_matches=" << prediction.blue_average_matches << "\n";
             output << "  red_estimate=" << prediction.red_score_estimate
                    << " blue_estimate=" << prediction.blue_score_estimate << "\n";
             output << "  red_total=" << prediction.red_score_total_estimate

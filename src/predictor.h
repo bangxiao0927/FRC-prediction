@@ -11,6 +11,12 @@
 struct MatchPrediction {
     std::vector<std::string> red_teams;
     std::vector<std::string> blue_teams;
+    int red_team_count = 0;
+    int blue_team_count = 0;
+    int red_total_matches = 0;
+    int blue_total_matches = 0;
+    double red_average_matches = 0.0;
+    double blue_average_matches = 0.0;
     double red_score_estimate = 0.0;
     double blue_score_estimate = 0.0;
     double red_score_total_estimate = 0.0;

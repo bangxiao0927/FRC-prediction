@@ -161,6 +161,8 @@ cmake --build build
 ```
 data/predictions/<match_key>.json
 ```
+
+预测输出包含队伍数量与联盟平均比赛数，用于解释置信度。
 ```
 
 ## 开发路线
