@@ -76,12 +76,12 @@ AllianceSample build_alliance_sample(const nlohmann::json& alliance,
         }
         std::string team_key = team_key_value.get<std::string>();
         sample.teams.push_back(team_key);
+        sample.team_count += 1;
         auto it = team_stats.find(team_key);
         if (it == team_stats.end()) {
             continue;
         }
         sample.total_matches += it->second.matches_played;
-        sample.team_count += 1;
     }
 
     if (sample.team_count == 0) {

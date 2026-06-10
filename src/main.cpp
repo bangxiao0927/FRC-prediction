@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 
 #include <nlohmann/json.hpp>
 
@@ -49,6 +50,15 @@ bool has_flag(const std::vector<std::string>& args, const std::string& flag) {
 }
 
 bool write_text_file(const std::string& path, const std::string& contents) {
+    std::filesystem::path file_path(path);
+    if (file_path.has_parent_path()) {
+        std::error_code error;
+        std::filesystem::create_directories(file_path.parent_path(), error);
+        if (error) {
+            return false;
+        }
+    }
+
     std::ofstream file(path);
     if (!file) {
         return false;
@@ -109,6 +119,12 @@ std::string default_prediction_output_path(const std::string& event_key, const s
 }  // namespace
 
 int main(int argc, char** argv) {
+    const std::vector<std::string> args(argv + 1, argv + argc);
+    if (has_flag(args, "--help") || has_flag(args, "-h")) {
+        print_usage();
+        return 0;
+    }
+
     const Config config = load_config();
     if (config.tba_auth_key.empty() || config.tba_auth_key == "your_key_here") {
         std::cerr << "Missing TBA API key.\n";
@@ -116,7 +132,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const std::vector<std::string> args(argv + 1, argv + argc);
     const std::string event_key_arg = get_arg_value(args, "--event");
     const std::string event_key = event_key_arg.empty() ? config.default_event_key : event_key_arg;
     const bool show_status = has_flag(args, "--status");
