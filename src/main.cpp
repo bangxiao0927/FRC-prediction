@@ -62,11 +62,12 @@ bool write_stats_csv(const std::string& path,
         return false;
     }
 
-    file << "team_key,matches_played,total_score,average_score\n";
+    file << "rank,team_key,matches_played,total_score,average_score\n";
     for (int index = 0; index < limit; ++index) {
         const auto& entry = ordered[index];
         const TeamStats& team_stats = entry.second;
-        file << entry.first << ","
+        file << (index + 1) << ","
+             << entry.first << ","
              << team_stats.matches_played << ","
              << team_stats.total_score << ","
              << team_stats.average_score << "\n";
@@ -77,6 +78,13 @@ bool write_stats_csv(const std::string& path,
 
 void print_usage() {
     std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming] [--top N] [--json] [--output FILE] [--stats-csv FILE]\n";
+}
+
+std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
+    if (match_key.empty()) {
+        return "data/predictions/" + event_key + "_prediction.json";
+    }
+    return "data/predictions/" + match_key + ".json";
 }
 
 }  // namespace
@@ -273,6 +281,9 @@ int main(int argc, char** argv) {
             config.score_diff_scale,
             config.sigmoid_scale);
         std::string match_key = match.value("key", "");
+        const std::string resolved_output_path = output_path.empty()
+            ? default_prediction_output_path(event_key, match_key)
+            : output_path;
         if (output_json) {
             nlohmann::json output = {
                 {"match_key", match_key},
@@ -290,12 +301,12 @@ int main(int argc, char** argv) {
                 {"blue_confidence", prediction.blue_confidence}
             };
             std::string payload = output.dump(2);
-            if (!output_path.empty()) {
-                if (!write_text_file(output_path, payload)) {
-                    std::cerr << "Failed to write output to " << output_path << ".\n";
+            if (!resolved_output_path.empty()) {
+                if (!write_text_file(resolved_output_path, payload)) {
+                    std::cerr << "Failed to write output to " << resolved_output_path << ".\n";
                     return 1;
                 }
-                std::cout << "Wrote prediction JSON to " << output_path << "\n";
+                std::cout << "Wrote prediction JSON to " << resolved_output_path << "\n";
             } else {
                 std::cout << payload << "\n";
             }
@@ -329,12 +340,12 @@ int main(int argc, char** argv) {
             output << "  red_confidence=" << prediction.red_confidence
                    << " blue_confidence=" << prediction.blue_confidence << "\n";
 
-            if (!output_path.empty()) {
-                if (!write_text_file(output_path, output.str())) {
-                    std::cerr << "Failed to write output to " << output_path << ".\n";
+            if (!resolved_output_path.empty()) {
+                if (!write_text_file(resolved_output_path, output.str())) {
+                    std::cerr << "Failed to write output to " << resolved_output_path << ".\n";
                     return 1;
                 }
-                std::cout << "Wrote prediction text to " << output_path << "\n";
+                std::cout << "Wrote prediction text to " << resolved_output_path << "\n";
             } else {
                 std::cout << output.str();
             }
