@@ -159,6 +159,7 @@ data/predictions/<match_key>.json
 ```
 
 Prediction outputs now include team counts, average matches per alliance, and adjusted averages relative to the event.
+Qualification predictions use qualification matches only; elimination predictions use qualification plus played elimination matches.
 ```
 
 ## Roadmap

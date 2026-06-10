@@ -56,13 +56,14 @@ bool write_text_file(const std::string& path, const std::string& contents) {
 
 bool write_stats_csv(const std::string& path,
                      const std::vector<std::pair<std::string, TeamStats>>& ordered,
-                     int limit) {
+                     int limit,
+                     double event_average_score) {
     std::ofstream file(path);
     if (!file) {
         return false;
     }
 
-    file << "rank,team_key,matches_played,total_score,average_score\n";
+    file << "rank,team_key,matches_played,total_score,average_score,event_average_score\n";
     for (int index = 0; index < limit; ++index) {
         const auto& entry = ordered[index];
         const TeamStats& team_stats = entry.second;
@@ -70,7 +71,8 @@ bool write_stats_csv(const std::string& path,
              << entry.first << ","
              << team_stats.matches_played << ","
              << team_stats.total_score << ","
-             << team_stats.average_score << "\n";
+             << team_stats.average_score << ","
+             << event_average_score << "\n";
     }
 
     return true;
@@ -164,7 +166,7 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches);
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches, MatchFilter::AllPlayed);
         if (stats.empty()) {
             std::cerr << "No stats computed for " << event_key << ".\n";
             return 1;
@@ -178,8 +180,9 @@ int main(int argc, char** argv) {
         int limit = top_count > 0 ? std::min(top_count, static_cast<int>(ordered.size()))
                                   : static_cast<int>(ordered.size());
 
+        double event_average = compute_event_average_score(stats);
         if (!stats_csv_path.empty()) {
-            if (!write_stats_csv(stats_csv_path, ordered, limit)) {
+            if (!write_stats_csv(stats_csv_path, ordered, limit, event_average)) {
                 std::cerr << "Failed to write stats CSV to " << stats_csv_path << ".\n";
                 return 1;
             }
@@ -220,7 +223,11 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches);
+        MatchFilter filter = MatchFilter::QualificationPlusElimPlayed;
+        if (match.value("comp_level", "") == "qm") {
+            filter = MatchFilter::QualificationOnly;
+        }
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches, filter);
         if (stats.empty()) {
             std::cerr << "No stats computed for " << event_key << ".\n";
             return 1;

@@ -4,6 +4,28 @@
 
 namespace {
 
+bool is_qualification_match(const nlohmann::json& match) {
+    return match.value("comp_level", "") == "qm";
+}
+
+bool is_elimination_match(const nlohmann::json& match) {
+    const std::string level = match.value("comp_level", "");
+    return level == "qf" || level == "sf" || level == "f";
+}
+
+bool should_include_match(const nlohmann::json& match, MatchFilter filter) {
+    if (filter == MatchFilter::AllPlayed) {
+        return true;
+    }
+    if (filter == MatchFilter::QualificationOnly) {
+        return is_qualification_match(match);
+    }
+    if (filter == MatchFilter::QualificationPlusElimPlayed) {
+        return is_qualification_match(match) || is_elimination_match(match);
+    }
+    return true;
+}
+
 void add_alliance_score(std::map<std::string, TeamStats>& stats,
                         const nlohmann::json& alliance,
                         int score) {
@@ -24,7 +46,8 @@ void add_alliance_score(std::map<std::string, TeamStats>& stats,
 
 }  // namespace
 
-std::map<std::string, TeamStats> compute_team_stats(const nlohmann::json& matches_json) {
+std::map<std::string, TeamStats> compute_team_stats(const nlohmann::json& matches_json,
+                                                    MatchFilter filter) {
     std::map<std::string, TeamStats> stats;
     if (!matches_json.is_array()) {
         return stats;
@@ -36,6 +59,10 @@ std::map<std::string, TeamStats> compute_team_stats(const nlohmann::json& matche
         }
         const nlohmann::json& alliances = match["alliances"];
         if (!alliances.contains("red") || !alliances.contains("blue")) {
+            continue;
+        }
+
+        if (!should_include_match(match, filter)) {
             continue;
         }
 
@@ -61,4 +88,19 @@ std::map<std::string, TeamStats> compute_team_stats(const nlohmann::json& matche
     }
 
     return stats;
+}
+
+double compute_event_average_score(const std::map<std::string, TeamStats>& team_stats) {
+    double total_score = 0.0;
+    int total_matches = 0;
+    for (const auto& entry : team_stats) {
+        total_score += static_cast<double>(entry.second.total_score);
+        total_matches += entry.second.matches_played;
+    }
+
+    if (total_matches == 0) {
+        return 0.0;
+    }
+
+    return total_score / static_cast<double>(total_matches);
 }
