@@ -151,6 +151,7 @@ Examples:
 ./build/frc_prediction --event 2024casj --predict-upcoming
 ./build/frc_prediction --event 2024casj --predict-upcoming --json
 ./build/frc_prediction --event 2024casj --predict-upcoming --json --output data/prediction.json
+./build/frc_prediction --event 2024casj --evaluate
 
 Default prediction output path when using --json without --output:
 

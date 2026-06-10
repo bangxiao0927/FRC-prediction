@@ -79,7 +79,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming] [--top N] [--json] [--output FILE] [--stats-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming|--evaluate] [--top N] [--json] [--output FILE] [--stats-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -111,12 +111,13 @@ int main(int argc, char** argv) {
     const std::string predict_match_key = get_arg_value(args, "--predict");
     const bool predict_upcoming = has_flag(args, "--predict-upcoming");
     const bool output_json = has_flag(args, "--json");
+    const bool evaluate_model = has_flag(args, "--evaluate");
     const std::string output_path = get_arg_value(args, "--output");
     const std::string stats_csv_path = get_arg_value(args, "--stats-csv");
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
-        && predict_match_key.empty() && !predict_upcoming) {
+        && predict_match_key.empty() && !predict_upcoming && !evaluate_model) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -375,6 +376,68 @@ int main(int argc, char** argv) {
                 std::cout << output.str();
             }
         }
+    }
+
+    if (evaluate_model) {
+        nlohmann::json matches = client.get_event_matches(event_key);
+        if (matches.empty()) {
+            std::cerr << "Failed to fetch event matches for " << event_key << ".\n";
+            return 1;
+        }
+
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches, MatchFilter::AllPlayed);
+        if (stats.empty()) {
+            std::cerr << "No stats computed for " << event_key << ".\n";
+            return 1;
+        }
+
+        int evaluated = 0;
+        int correct_winner = 0;
+        double total_abs_error = 0.0;
+        for (const auto& match : matches) {
+            if (!match.contains("alliances") || !match["alliances"].is_object()) {
+                continue;
+            }
+            const nlohmann::json& alliances = match["alliances"];
+            if (!alliances.contains("red") || !alliances.contains("blue")) {
+                continue;
+            }
+            int red_score = alliances["red"].value("score", -1);
+            int blue_score = alliances["blue"].value("score", -1);
+            if (red_score < 0 || blue_score < 0) {
+                continue;
+            }
+
+            MatchPrediction prediction = predict_match(
+                match,
+                stats,
+                config.confidence_match_count,
+                config.score_diff_scale,
+                config.sigmoid_scale);
+            double predicted_diff = prediction.adjusted_score_diff_estimate;
+            double actual_diff = static_cast<double>(red_score - blue_score);
+            total_abs_error += std::abs(actual_diff - predicted_diff);
+
+            bool predicted_red = prediction.red_win_probability >= 0.5;
+            bool actual_red = actual_diff >= 0.0;
+            if (predicted_red == actual_red) {
+                correct_winner += 1;
+            }
+
+            evaluated += 1;
+        }
+
+        if (evaluated == 0) {
+            std::cerr << "No completed matches available for evaluation.\n";
+            return 1;
+        }
+
+        double mae = total_abs_error / static_cast<double>(evaluated);
+        double accuracy = static_cast<double>(correct_winner) / static_cast<double>(evaluated);
+        std::cout << "Evaluation (" << event_key << "):\n";
+        std::cout << "  matches=" << evaluated << "\n";
+        std::cout << "  mae=" << mae << "\n";
+        std::cout << "  winner_accuracy=" << accuracy << "\n";
     }
 
     return 0;
