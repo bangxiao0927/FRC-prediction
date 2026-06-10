@@ -156,6 +156,9 @@ cmake --build build
 ./build/frc_prediction --event 2024casj --predict-upcoming --json
 ./build/frc_prediction --event 2024casj --predict-upcoming --json --output data/prediction.json
 ./build/frc_prediction --event 2024casj --evaluate
+./build/frc_prediction --event 2024casj --evaluate --phase qm
+./build/frc_prediction --event 2024casj --evaluate --phase elim --eval-json data/eval.json
+./build/frc_prediction --event 2024casj --evaluate --phase all --eval-csv data/eval.csv
 
 当使用 --json 且未指定 --output 时，默认输出路径：
 

@@ -79,7 +79,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming|--evaluate] [--top N] [--json] [--output FILE] [--stats-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming|--evaluate] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--eval-json FILE] [--eval-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -114,6 +114,9 @@ int main(int argc, char** argv) {
     const bool evaluate_model = has_flag(args, "--evaluate");
     const std::string output_path = get_arg_value(args, "--output");
     const std::string stats_csv_path = get_arg_value(args, "--stats-csv");
+    const std::string phase_arg = get_arg_value(args, "--phase");
+    const std::string eval_json_path = get_arg_value(args, "--eval-json");
+    const std::string eval_csv_path = get_arg_value(args, "--eval-csv");
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
@@ -385,7 +388,17 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches, MatchFilter::AllPlayed);
+        MatchFilter eval_filter = MatchFilter::AllPlayed;
+        if (phase_arg == "qm") {
+            eval_filter = MatchFilter::QualificationOnly;
+        } else if (phase_arg == "elim") {
+            eval_filter = MatchFilter::QualificationPlusElimPlayed;
+        } else if (!phase_arg.empty() && phase_arg != "all") {
+            std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
+            return 1;
+        }
+
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches, eval_filter);
         if (stats.empty()) {
             std::cerr << "No stats computed for " << event_key << ".\n";
             return 1;
@@ -434,10 +447,43 @@ int main(int argc, char** argv) {
 
         double mae = total_abs_error / static_cast<double>(evaluated);
         double accuracy = static_cast<double>(correct_winner) / static_cast<double>(evaluated);
-        std::cout << "Evaluation (" << event_key << "):\n";
-        std::cout << "  matches=" << evaluated << "\n";
-        std::cout << "  mae=" << mae << "\n";
-        std::cout << "  winner_accuracy=" << accuracy << "\n";
+        if (!eval_json_path.empty()) {
+            nlohmann::json output = {
+                {"event_key", event_key},
+                {"phase", phase_arg.empty() ? "all" : phase_arg},
+                {"matches", evaluated},
+                {"mae", mae},
+                {"winner_accuracy", accuracy}
+            };
+            if (!write_text_file(eval_json_path, output.dump(2))) {
+                std::cerr << "Failed to write evaluation JSON to " << eval_json_path << ".\n";
+                return 1;
+            }
+            std::cout << "Wrote evaluation JSON to " << eval_json_path << "\n";
+        }
+
+        if (!eval_csv_path.empty()) {
+            std::ofstream file(eval_csv_path);
+            if (!file) {
+                std::cerr << "Failed to write evaluation CSV to " << eval_csv_path << ".\n";
+                return 1;
+            }
+            file << "event_key,phase,matches,mae,winner_accuracy\n";
+            file << event_key << ","
+                 << (phase_arg.empty() ? "all" : phase_arg) << ","
+                 << evaluated << ","
+                 << mae << ","
+                 << accuracy << "\n";
+            std::cout << "Wrote evaluation CSV to " << eval_csv_path << "\n";
+        }
+
+        if (eval_json_path.empty() && eval_csv_path.empty()) {
+            std::cout << "Evaluation (" << event_key << "):\n";
+            std::cout << "  phase=" << (phase_arg.empty() ? "all" : phase_arg) << "\n";
+            std::cout << "  matches=" << evaluated << "\n";
+            std::cout << "  mae=" << mae << "\n";
+            std::cout << "  winner_accuracy=" << accuracy << "\n";
+        }
     }
 
     return 0;
