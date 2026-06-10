@@ -137,6 +137,26 @@ cmake --build build
 ./build/frc_prediction --status
 ```
 
+### Web Dashboard (Flask)
+
+1. Generate data files:
+
+```bash
+./build/frc_prediction --event 2024casj --stats --top 20 --stats-csv data/stats.csv
+./build/frc_prediction --event 2024casj --predict-upcoming --json --output data/prediction.json
+```
+
+2. Start the web server:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python app.py
+```
+
+3. Open `http://127.0.0.1:5000`.
+
 Examples:
 
 ```bash

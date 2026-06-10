@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FRC Prediction Dashboard</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>FRC Prediction Dashboard</h1>
+      <p>Reads <code>data/stats.csv</code> and <code>data/prediction.json</code>.</p>
+    </header>
+
+    <section class="controls">
+      <button id="refresh">Refresh</button>
+      <span id="status"></span>
+    </section>
+
+    <section>
+      <h2>Prediction</h2>
+      <pre id="prediction"></pre>
+    </section>
+
+    <section>
+      <h2>Team Stats</h2>
+      <canvas id="statsChart"></canvas>
+      <table id="statsTable">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Team</th>
+            <th>Matches</th>
+            <th>Total</th>
+            <th>Average</th>
+            <th>Event Avg</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
