@@ -244,16 +244,6 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        MatchFilter filter = MatchFilter::QualificationPlusElimPlayed;
-        if (match.value("comp_level", "") == "qm") {
-            filter = MatchFilter::QualificationOnly;
-        }
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches, filter);
-        if (stats.empty()) {
-            std::cerr << "No stats computed for " << event_key << ".\n";
-            return 1;
-        }
-
         nlohmann::json match;
         if (!predict_match_key.empty()) {
             for (const auto& entry : matches) {
@@ -300,6 +290,16 @@ int main(int argc, char** argv) {
                 std::cerr << "No upcoming match found for " << event_key << ".\n";
                 return 1;
             }
+        }
+
+        MatchFilter filter = MatchFilter::QualificationPlusElimPlayed;
+        if (match.value("comp_level", "") == "qm") {
+            filter = MatchFilter::QualificationOnly;
+        }
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches, filter);
+        if (stats.empty()) {
+            std::cerr << "No stats computed for " << event_key << ".\n";
+            return 1;
         }
 
         MatchPrediction prediction = predict_match(
