@@ -146,9 +146,11 @@ Examples:
 ./build/frc_prediction --event 2024casj --stats
 ./build/frc_prediction --event 2024casj --stats --top 10
 ./build/frc_prediction --event 2024casj --stats-json --top 10
+./build/frc_prediction --event 2024casj --stats --top 10 --stats-csv data/stats.csv
 ./build/frc_prediction --event 2024casj --predict 2024casj_qm1
 ./build/frc_prediction --event 2024casj --predict-upcoming
 ./build/frc_prediction --event 2024casj --predict-upcoming --json
+./build/frc_prediction --event 2024casj --predict-upcoming --json --output data/prediction.json
 ```
 
 ## Roadmap

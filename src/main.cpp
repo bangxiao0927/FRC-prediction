@@ -1,7 +1,9 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <fstream>
 #include <limits>
+#include <sstream>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -43,8 +45,38 @@ bool has_flag(const std::vector<std::string>& args, const std::string& flag) {
     return false;
 }
 
+bool write_text_file(const std::string& path, const std::string& contents) {
+    std::ofstream file(path);
+    if (!file) {
+        return false;
+    }
+    file << contents;
+    return true;
+}
+
+bool write_stats_csv(const std::string& path,
+                     const std::vector<std::pair<std::string, TeamStats>>& ordered,
+                     int limit) {
+    std::ofstream file(path);
+    if (!file) {
+        return false;
+    }
+
+    file << "team_key,matches_played,total_score,average_score\n";
+    for (int index = 0; index < limit; ++index) {
+        const auto& entry = ordered[index];
+        const TeamStats& team_stats = entry.second;
+        file << entry.first << ","
+             << team_stats.matches_played << ","
+             << team_stats.total_score << ","
+             << team_stats.average_score << "\n";
+    }
+
+    return true;
+}
+
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming] [--top N] [--json]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming] [--top N] [--json] [--output FILE] [--stats-csv FILE]\n";
 }
 
 }  // namespace
@@ -69,6 +101,8 @@ int main(int argc, char** argv) {
     const std::string predict_match_key = get_arg_value(args, "--predict");
     const bool predict_upcoming = has_flag(args, "--predict-upcoming");
     const bool output_json = has_flag(args, "--json");
+    const std::string output_path = get_arg_value(args, "--output");
+    const std::string stats_csv_path = get_arg_value(args, "--stats-csv");
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
@@ -135,6 +169,14 @@ int main(int argc, char** argv) {
 
         int limit = top_count > 0 ? std::min(top_count, static_cast<int>(ordered.size()))
                                   : static_cast<int>(ordered.size());
+
+        if (!stats_csv_path.empty()) {
+            if (!write_stats_csv(stats_csv_path, ordered, limit)) {
+                std::cerr << "Failed to write stats CSV to " << stats_csv_path << ".\n";
+                return 1;
+            }
+            std::cout << "Wrote stats CSV to " << stats_csv_path << "\n";
+        }
 
         if (show_stats_json) {
             nlohmann::json output = nlohmann::json::array();
@@ -247,35 +289,55 @@ int main(int argc, char** argv) {
                 {"red_confidence", prediction.red_confidence},
                 {"blue_confidence", prediction.blue_confidence}
             };
-            std::cout << output.dump(2) << "\n";
+            std::string payload = output.dump(2);
+            if (!output_path.empty()) {
+                if (!write_text_file(output_path, payload)) {
+                    std::cerr << "Failed to write output to " << output_path << ".\n";
+                    return 1;
+                }
+                std::cout << "Wrote prediction JSON to " << output_path << "\n";
+            } else {
+                std::cout << payload << "\n";
+            }
         } else {
-            std::cout << "Prediction for " << match_key << ":\n";
-            std::cout << "  model_version=" << config.model_version << "\n";
-            std::cout << "  red_teams=";
+            std::ostringstream output;
+            output << "Prediction for " << match_key << ":\n";
+            output << "  model_version=" << config.model_version << "\n";
+            output << "  red_teams=";
             for (size_t i = 0; i < prediction.red_teams.size(); ++i) {
                 if (i > 0) {
-                    std::cout << ",";
+                    output << ",";
                 }
-                std::cout << prediction.red_teams[i];
+                output << prediction.red_teams[i];
             }
-            std::cout << "\n";
-            std::cout << "  blue_teams=";
+            output << "\n";
+            output << "  blue_teams=";
             for (size_t i = 0; i < prediction.blue_teams.size(); ++i) {
                 if (i > 0) {
-                    std::cout << ",";
+                    output << ",";
                 }
-                std::cout << prediction.blue_teams[i];
+                output << prediction.blue_teams[i];
             }
-            std::cout << "\n";
-            std::cout << "  red_estimate=" << prediction.red_score_estimate
-                      << " blue_estimate=" << prediction.blue_score_estimate << "\n";
-            std::cout << "  red_total=" << prediction.red_score_total_estimate
-                      << " blue_total=" << prediction.blue_score_total_estimate
-                      << " diff=" << prediction.score_diff_estimate << "\n";
-            std::cout << "  red_win_prob=" << prediction.red_win_probability
-                      << " blue_win_prob=" << prediction.blue_win_probability << "\n";
-            std::cout << "  red_confidence=" << prediction.red_confidence
-                      << " blue_confidence=" << prediction.blue_confidence << "\n";
+            output << "\n";
+            output << "  red_estimate=" << prediction.red_score_estimate
+                   << " blue_estimate=" << prediction.blue_score_estimate << "\n";
+            output << "  red_total=" << prediction.red_score_total_estimate
+                   << " blue_total=" << prediction.blue_score_total_estimate
+                   << " diff=" << prediction.score_diff_estimate << "\n";
+            output << "  red_win_prob=" << prediction.red_win_probability
+                   << " blue_win_prob=" << prediction.blue_win_probability << "\n";
+            output << "  red_confidence=" << prediction.red_confidence
+                   << " blue_confidence=" << prediction.blue_confidence << "\n";
+
+            if (!output_path.empty()) {
+                if (!write_text_file(output_path, output.str())) {
+                    std::cerr << "Failed to write output to " << output_path << ".\n";
+                    return 1;
+                }
+                std::cout << "Wrote prediction text to " << output_path << "\n";
+            } else {
+                std::cout << output.str();
+            }
         }
     }
 
