@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -132,6 +133,42 @@ bool resolve_phase_filter(const std::string& phase_arg,
         return true;
     }
     return false;
+}
+
+// Expands user-friendly match keys into full TBA keys, e.g. for event 2024casj:
+//   "3"            -> "2024casj_qm3"   (bare number = qualification)
+//   "qm3"          -> "2024casj_qm3"
+//   "sf2m1"        -> "2024casj_sf2m1"
+//   "2024casj_qm3" -> unchanged (already a full key)
+std::string normalize_match_key(const std::string& event_key, const std::string& raw) {
+    if (raw.empty()) {
+        return raw;
+    }
+
+    std::string key = raw;
+    std::transform(key.begin(), key.end(), key.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    // Already a full key (contains the event prefix or any underscore).
+    if (key.rfind(event_key + "_", 0) == 0 || key.find('_') != std::string::npos) {
+        return key;
+    }
+
+    const bool all_digits =
+        !key.empty() && key.find_first_not_of("0123456789") == std::string::npos;
+    if (all_digits) {
+        return event_key + "_qm" + key;
+    }
+
+    // Comp-level shorthand such as qm3, qf3m1, sf2m1, f1m2.
+    const bool starts_with_level =
+        key.rfind("qm", 0) == 0 || key.rfind("qf", 0) == 0 ||
+        key.rfind("sf", 0) == 0 || key.rfind("f", 0) == 0;
+    if (starts_with_level) {
+        return event_key + "_" + key;
+    }
+
+    return event_key + "_" + key;
 }
 
 }  // namespace
@@ -284,18 +321,23 @@ int main(int argc, char** argv) {
 
         nlohmann::json match;
         if (!predict_match_key.empty()) {
+            const std::string resolved_match_key =
+                normalize_match_key(event_key, predict_match_key);
             for (const auto& entry : matches) {
                 if (!entry.contains("key")) {
                     continue;
                 }
-                if (entry["key"].is_string() && entry["key"].get<std::string>() == predict_match_key) {
+                if (entry["key"].is_string() && entry["key"].get<std::string>() == resolved_match_key) {
                     match = entry;
                     break;
                 }
             }
 
             if (match.is_null()) {
-                std::cerr << "Match key not found: " << predict_match_key << "\n";
+                std::cerr << "Match key not found: " << resolved_match_key
+                          << " (from \"" << predict_match_key << "\").\n";
+                std::cerr << "Try a full key like " << event_key
+                          << "_qm3, or a shorthand like 3 / qm3 / sf2m1.\n";
                 return 1;
             }
         } else {
