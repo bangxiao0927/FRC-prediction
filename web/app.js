@@ -108,6 +108,10 @@ function renderTable(rows) {
 }
 
 function renderChart(rows) {
+  if (typeof Chart === "undefined") {
+    // Chart.js (loaded from CDN) is unavailable; keep the table usable.
+    return;
+  }
   const labels = rows.map((row) => row.team_key);
   const data = rows.map((row) => Number(row.average_score));
 
