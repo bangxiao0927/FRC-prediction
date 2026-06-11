@@ -2,7 +2,6 @@
 #include <string>
 #include <algorithm>
 #include <fstream>
-#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -116,6 +115,25 @@ std::string default_prediction_output_path(const std::string& event_key, const s
     return "data/predictions/" + match_key + ".json";
 }
 
+// Maps a --phase argument to a stats filter. Returns false for an unknown value.
+bool resolve_phase_filter(const std::string& phase_arg,
+                          MatchFilter default_filter,
+                          MatchFilter& out_filter) {
+    if (phase_arg.empty() || phase_arg == "all") {
+        out_filter = default_filter;
+        return true;
+    }
+    if (phase_arg == "qm") {
+        out_filter = MatchFilter::QualificationOnly;
+        return true;
+    }
+    if (phase_arg == "elim") {
+        out_filter = MatchFilter::QualificationPlusElimPlayed;
+        return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -202,7 +220,12 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches, MatchFilter::AllPlayed);
+        MatchFilter stats_filter = MatchFilter::AllPlayed;
+        if (!resolve_phase_filter(phase_arg, MatchFilter::AllPlayed, stats_filter)) {
+            std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
+            return 1;
+        }
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches, stats_filter);
         if (stats.empty()) {
             std::cerr << "No stats computed for " << event_key << ".\n";
             return 1;
@@ -276,7 +299,18 @@ int main(int argc, char** argv) {
                 return 1;
             }
         } else {
-            double best_time = std::numeric_limits<double>::max();
+            // Pick the "next" unplayed match. TBA does not always return matches
+            // in schedule order and `time` is frequently missing (0/null), so we
+            // rank candidates instead of skipping anything:
+            //   1. matches scheduled in the future (time >= now), earliest first
+            //   2. otherwise any timed match, earliest first
+            //   3. otherwise the first unscored match in TBA order (schedule order)
+            const double now_seconds = static_cast<double>(std::time(nullptr));
+            bool have_candidate = false;
+            bool best_is_future = false;
+            double best_time = 0.0;
+            bool best_has_time = false;
+
             for (const auto& entry : matches) {
                 if (!entry.contains("alliances") || !entry["alliances"].is_object()) {
                     continue;
@@ -288,16 +322,39 @@ int main(int argc, char** argv) {
                 int red_score = alliances["red"].value("score", -1);
                 int blue_score = alliances["blue"].value("score", -1);
                 if (red_score >= 0 || blue_score >= 0) {
+                    continue;  // already played
+                }
+
+                const double time = entry.value("time", 0.0);
+                const bool has_time = time > 0.0;
+                const bool is_future = has_time && time >= now_seconds;
+
+                if (!have_candidate) {
+                    match = entry;
+                    have_candidate = true;
+                    best_is_future = is_future;
+                    best_has_time = has_time;
+                    best_time = time;
                     continue;
                 }
 
-                double time = entry.value("time", 0.0);
-                if (time <= 0.0) {
-                    continue;
+                // Prefer future matches, then any timed match, then earliest time.
+                bool replace = false;
+                if (is_future && !best_is_future) {
+                    replace = true;
+                } else if (is_future == best_is_future) {
+                    if (has_time && !best_has_time) {
+                        replace = true;
+                    } else if (has_time && best_has_time && time < best_time) {
+                        replace = true;
+                    }
                 }
-                if (time < best_time) {
-                    best_time = time;
+
+                if (replace) {
                     match = entry;
+                    best_is_future = is_future;
+                    best_has_time = has_time;
+                    best_time = time;
                 }
             }
 
@@ -421,11 +478,7 @@ int main(int argc, char** argv) {
         }
 
         MatchFilter eval_filter = MatchFilter::AllPlayed;
-        if (phase_arg == "qm") {
-            eval_filter = MatchFilter::QualificationOnly;
-        } else if (phase_arg == "elim") {
-            eval_filter = MatchFilter::QualificationPlusElimPlayed;
-        } else if (!phase_arg.empty() && phase_arg != "all") {
+        if (!resolve_phase_filter(phase_arg, MatchFilter::AllPlayed, eval_filter)) {
             std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
             return 1;
         }
