@@ -1,13 +1,14 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <cctype>
 #include <fstream>
-#include <limits>
 #include <sstream>
 #include <vector>
 
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 
 #include <nlohmann/json.hpp>
 
@@ -49,6 +50,15 @@ bool has_flag(const std::vector<std::string>& args, const std::string& flag) {
 }
 
 bool write_text_file(const std::string& path, const std::string& contents) {
+    std::filesystem::path file_path(path);
+    if (file_path.has_parent_path()) {
+        std::error_code error;
+        std::filesystem::create_directories(file_path.parent_path(), error);
+        if (error) {
+            return false;
+        }
+    }
+
     std::ofstream file(path);
     if (!file) {
         return false;
@@ -106,9 +116,70 @@ std::string default_prediction_output_path(const std::string& event_key, const s
     return "data/predictions/" + match_key + ".json";
 }
 
+// Maps a --phase argument to a stats filter. Returns false for an unknown value.
+bool resolve_phase_filter(const std::string& phase_arg,
+                          MatchFilter default_filter,
+                          MatchFilter& out_filter) {
+    if (phase_arg.empty() || phase_arg == "all") {
+        out_filter = default_filter;
+        return true;
+    }
+    if (phase_arg == "qm") {
+        out_filter = MatchFilter::QualificationOnly;
+        return true;
+    }
+    if (phase_arg == "elim") {
+        out_filter = MatchFilter::QualificationPlusElimPlayed;
+        return true;
+    }
+    return false;
+}
+
+// Expands user-friendly match keys into full TBA keys, e.g. for event 2024casj:
+//   "3"            -> "2024casj_qm3"   (bare number = qualification)
+//   "qm3"          -> "2024casj_qm3"
+//   "sf2m1"        -> "2024casj_sf2m1"
+//   "2024casj_qm3" -> unchanged (already a full key)
+std::string normalize_match_key(const std::string& event_key, const std::string& raw) {
+    if (raw.empty()) {
+        return raw;
+    }
+
+    std::string key = raw;
+    std::transform(key.begin(), key.end(), key.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    // Already a full key (contains the event prefix or any underscore).
+    if (key.rfind(event_key + "_", 0) == 0 || key.find('_') != std::string::npos) {
+        return key;
+    }
+
+    const bool all_digits =
+        !key.empty() && key.find_first_not_of("0123456789") == std::string::npos;
+    if (all_digits) {
+        return event_key + "_qm" + key;
+    }
+
+    // Comp-level shorthand such as qm3, qf3m1, sf2m1, f1m2.
+    const bool starts_with_level =
+        key.rfind("qm", 0) == 0 || key.rfind("qf", 0) == 0 ||
+        key.rfind("sf", 0) == 0 || key.rfind("f", 0) == 0;
+    if (starts_with_level) {
+        return event_key + "_" + key;
+    }
+
+    return event_key + "_" + key;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+    const std::vector<std::string> args(argv + 1, argv + argc);
+    if (has_flag(args, "--help") || has_flag(args, "-h")) {
+        print_usage();
+        return 0;
+    }
+
     const Config config = load_config();
     if (config.tba_auth_key.empty() || config.tba_auth_key == "your_key_here") {
         std::cerr << "Missing TBA API key.\n";
@@ -116,7 +187,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const std::vector<std::string> args(argv + 1, argv + argc);
     const std::string event_key_arg = get_arg_value(args, "--event");
     const std::string event_key = event_key_arg.empty() ? config.default_event_key : event_key_arg;
     const bool show_status = has_flag(args, "--status");
@@ -187,7 +257,12 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches, MatchFilter::AllPlayed);
+        MatchFilter stats_filter = MatchFilter::AllPlayed;
+        if (!resolve_phase_filter(phase_arg, MatchFilter::AllPlayed, stats_filter)) {
+            std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
+            return 1;
+        }
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches, stats_filter);
         if (stats.empty()) {
             std::cerr << "No stats computed for " << event_key << ".\n";
             return 1;
@@ -244,34 +319,40 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        MatchFilter filter = MatchFilter::QualificationPlusElimPlayed;
-        if (match.value("comp_level", "") == "qm") {
-            filter = MatchFilter::QualificationOnly;
-        }
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches, filter);
-        if (stats.empty()) {
-            std::cerr << "No stats computed for " << event_key << ".\n";
-            return 1;
-        }
-
         nlohmann::json match;
         if (!predict_match_key.empty()) {
+            const std::string resolved_match_key =
+                normalize_match_key(event_key, predict_match_key);
             for (const auto& entry : matches) {
                 if (!entry.contains("key")) {
                     continue;
                 }
-                if (entry["key"].is_string() && entry["key"].get<std::string>() == predict_match_key) {
+                if (entry["key"].is_string() && entry["key"].get<std::string>() == resolved_match_key) {
                     match = entry;
                     break;
                 }
             }
 
             if (match.is_null()) {
-                std::cerr << "Match key not found: " << predict_match_key << "\n";
+                std::cerr << "Match key not found: " << resolved_match_key
+                          << " (from \"" << predict_match_key << "\").\n";
+                std::cerr << "Try a full key like " << event_key
+                          << "_qm3, or a shorthand like 3 / qm3 / sf2m1.\n";
                 return 1;
             }
         } else {
-            double best_time = std::numeric_limits<double>::max();
+            // Pick the "next" unplayed match. TBA does not always return matches
+            // in schedule order and `time` is frequently missing (0/null), so we
+            // rank candidates instead of skipping anything:
+            //   1. matches scheduled in the future (time >= now), earliest first
+            //   2. otherwise any timed match, earliest first
+            //   3. otherwise the first unscored match in TBA order (schedule order)
+            const double now_seconds = static_cast<double>(std::time(nullptr));
+            bool have_candidate = false;
+            bool best_is_future = false;
+            double best_time = 0.0;
+            bool best_has_time = false;
+
             for (const auto& entry : matches) {
                 if (!entry.contains("alliances") || !entry["alliances"].is_object()) {
                     continue;
@@ -283,16 +364,39 @@ int main(int argc, char** argv) {
                 int red_score = alliances["red"].value("score", -1);
                 int blue_score = alliances["blue"].value("score", -1);
                 if (red_score >= 0 || blue_score >= 0) {
+                    continue;  // already played
+                }
+
+                const double time = entry.value("time", 0.0);
+                const bool has_time = time > 0.0;
+                const bool is_future = has_time && time >= now_seconds;
+
+                if (!have_candidate) {
+                    match = entry;
+                    have_candidate = true;
+                    best_is_future = is_future;
+                    best_has_time = has_time;
+                    best_time = time;
                     continue;
                 }
 
-                double time = entry.value("time", 0.0);
-                if (time <= 0.0) {
-                    continue;
+                // Prefer future matches, then any timed match, then earliest time.
+                bool replace = false;
+                if (is_future && !best_is_future) {
+                    replace = true;
+                } else if (is_future == best_is_future) {
+                    if (has_time && !best_has_time) {
+                        replace = true;
+                    } else if (has_time && best_has_time && time < best_time) {
+                        replace = true;
+                    }
                 }
-                if (time < best_time) {
-                    best_time = time;
+
+                if (replace) {
                     match = entry;
+                    best_is_future = is_future;
+                    best_has_time = has_time;
+                    best_time = time;
                 }
             }
 
@@ -300,6 +404,16 @@ int main(int argc, char** argv) {
                 std::cerr << "No upcoming match found for " << event_key << ".\n";
                 return 1;
             }
+        }
+
+        MatchFilter filter = MatchFilter::QualificationPlusElimPlayed;
+        if (match.value("comp_level", "") == "qm") {
+            filter = MatchFilter::QualificationOnly;
+        }
+        std::map<std::string, TeamStats> stats = compute_team_stats(matches, filter);
+        if (stats.empty()) {
+            std::cerr << "No stats computed for " << event_key << ".\n";
+            return 1;
         }
 
         MatchPrediction prediction = predict_match(
@@ -406,11 +520,7 @@ int main(int argc, char** argv) {
         }
 
         MatchFilter eval_filter = MatchFilter::AllPlayed;
-        if (phase_arg == "qm") {
-            eval_filter = MatchFilter::QualificationOnly;
-        } else if (phase_arg == "elim") {
-            eval_filter = MatchFilter::QualificationPlusElimPlayed;
-        } else if (!phase_arg.empty() && phase_arg != "all") {
+        if (!resolve_phase_filter(phase_arg, MatchFilter::AllPlayed, eval_filter)) {
             std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
             return 1;
         }

@@ -23,3 +23,18 @@ target_link_libraries(frc_prediction
         cpr::cpr
         nlohmann_json::nlohmann_json
 )
+
+enable_testing()
+
+add_executable(frc_prediction_tests
+    tests/predictor_tests.cpp
+    src/predictor.cpp
+    src/stats.cpp
+)
+
+target_link_libraries(frc_prediction_tests
+    PRIVATE
+        nlohmann_json::nlohmann_json
+)
+
+add_test(NAME frc_prediction_tests COMMAND frc_prediction_tests)

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FRC Prediction Dashboard</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>FRC Prediction Dashboard</h1>
+    </header>
+
+    <section class="controls" aria-label="Prediction controls">
+      <label>
+        Event
+        <input id="eventKey" type="text" value="2024casj" autocomplete="off" />
+      </label>
+      <label>
+        Match
+        <input id="matchKey" type="text" placeholder="upcoming · or 3 / qm3 / sf2m1" autocomplete="off" />
+      </label>
+      <label>
+        Top
+        <input id="topCount" type="number" min="1" max="100" value="20" />
+      </label>
+      <button id="runPrediction">Run</button>
+      <button id="refresh" type="button">Refresh files</button>
+      <label class="auto-refresh">
+        <input id="autoRefresh" type="checkbox" />
+        Auto
+      </label>
+      <label>
+        Every
+        <select id="autoInterval">
+          <option value="15">15s</option>
+          <option value="30" selected>30s</option>
+          <option value="60">60s</option>
+          <option value="120">2m</option>
+        </select>
+      </label>
+      <span id="status" role="status"></span>
+    </section>
+
+    <section id="errorPanel" class="error-panel" hidden></section>
+
+    <section id="predictionPanel" class="prediction-panel" hidden>
+      <h2>Prediction</h2>
+      <div class="summary-grid">
+        <div class="summary-item red">
+          <span>Red Win</span>
+          <strong id="redWin">--</strong>
+        </div>
+        <div class="summary-item blue">
+          <span>Blue Win</span>
+          <strong id="blueWin">--</strong>
+        </div>
+        <div class="summary-item">
+          <span>Match</span>
+          <strong id="matchLabel">--</strong>
+        </div>
+        <div class="summary-item">
+          <span>Score Diff</span>
+          <strong id="scoreDiff">--</strong>
+        </div>
+      </div>
+
+      <div class="alliance-grid">
+        <article class="alliance red">
+          <h3>Red Alliance</h3>
+          <p id="redTeams"></p>
+          <dl>
+            <div><dt>Estimate</dt><dd id="redEstimate">--</dd></div>
+            <div><dt>Confidence</dt><dd id="redConfidence">--</dd></div>
+          </dl>
+        </article>
+        <article class="alliance blue">
+          <h3>Blue Alliance</h3>
+          <p id="blueTeams"></p>
+          <dl>
+            <div><dt>Estimate</dt><dd id="blueEstimate">--</dd></div>
+            <div><dt>Confidence</dt><dd id="blueConfidence">--</dd></div>
+          </dl>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Team Stats</h2>
+      <div class="chart-container">
+        <canvas id="statsChart"></canvas>
+      </div>
+      <table id="statsTable">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Team</th>
+            <th>Matches</th>
+            <th>Total</th>
+            <th>Average</th>
+            <th>Event Avg</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
