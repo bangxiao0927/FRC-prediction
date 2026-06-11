@@ -7,8 +7,12 @@ const topInput = document.getElementById("topCount");
 const tableBody = document.querySelector("#statsTable tbody");
 const errorPanel = document.getElementById("errorPanel");
 const predictionPanel = document.getElementById("predictionPanel");
+const autoRefreshToggle = document.getElementById("autoRefresh");
+const autoIntervalSelect = document.getElementById("autoInterval");
 
 let chart;
+let autoTimer = null;
+let isBusy = false;
 
 async function fetchText(url) {
   const response = await fetch(url);
@@ -86,9 +90,10 @@ function clearError() {
   errorPanel.hidden = true;
 }
 
-function setBusy(isBusy) {
-  runButton.disabled = isBusy;
-  refreshButton.disabled = isBusy;
+function setBusy(busy) {
+  isBusy = busy;
+  runButton.disabled = busy;
+  refreshButton.disabled = busy;
 }
 
 function renderTable(rows) {
@@ -202,7 +207,11 @@ async function runPrediction() {
     });
 
     renderData(result.stats, result.prediction);
-    statusLabel.textContent = `Updated ${new Date(result.generated_at).toLocaleTimeString()}`;
+    const stamp = new Date(result.generated_at).toLocaleTimeString();
+    const autoSuffix = autoRefreshToggle.checked
+      ? ` · auto every ${autoIntervalSelect.value}s`
+      : "";
+    statusLabel.textContent = `Updated ${stamp}${autoSuffix}`;
   } catch (error) {
     showError(error.message);
     statusLabel.textContent = "Error";
@@ -221,6 +230,41 @@ eventInput.addEventListener("keydown", (event) => {
 matchInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     runPrediction();
+  }
+});
+
+function stopAutoRefresh() {
+  if (autoTimer !== null) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  const seconds = Number(autoIntervalSelect.value) || 30;
+  autoTimer = setInterval(() => {
+    // Skip this tick if a run/refresh is still in flight to avoid overlap.
+    if (isBusy) {
+      return;
+    }
+    runPrediction();
+  }, seconds * 1000);
+}
+
+function syncAutoRefresh() {
+  if (autoRefreshToggle.checked) {
+    startAutoRefresh();
+  } else {
+    stopAutoRefresh();
+  }
+}
+
+autoRefreshToggle.addEventListener("change", syncAutoRefresh);
+autoIntervalSelect.addEventListener("change", () => {
+  // Restart the timer with the new interval only when auto-refresh is on.
+  if (autoRefreshToggle.checked) {
+    startAutoRefresh();
   }
 });
 
