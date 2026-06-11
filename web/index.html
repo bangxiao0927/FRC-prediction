@@ -10,17 +10,67 @@
   <body>
     <header>
       <h1>FRC Prediction Dashboard</h1>
-      <p>Reads <code>data/stats.csv</code> and <code>data/prediction.json</code>.</p>
     </header>
 
-    <section class="controls">
-      <button id="refresh">Refresh</button>
-      <span id="status"></span>
+    <section class="controls" aria-label="Prediction controls">
+      <label>
+        Event
+        <input id="eventKey" type="text" value="2024casj" autocomplete="off" />
+      </label>
+      <label>
+        Match
+        <input id="matchKey" type="text" placeholder="upcoming" autocomplete="off" />
+      </label>
+      <label>
+        Top
+        <input id="topCount" type="number" min="1" max="100" value="20" />
+      </label>
+      <button id="runPrediction">Run</button>
+      <button id="refresh" type="button">Refresh files</button>
+      <span id="status" role="status"></span>
     </section>
 
-    <section>
+    <section id="errorPanel" class="error-panel" hidden></section>
+
+    <section id="predictionPanel" class="prediction-panel" hidden>
       <h2>Prediction</h2>
-      <pre id="prediction"></pre>
+      <div class="summary-grid">
+        <div class="summary-item red">
+          <span>Red Win</span>
+          <strong id="redWin">--</strong>
+        </div>
+        <div class="summary-item blue">
+          <span>Blue Win</span>
+          <strong id="blueWin">--</strong>
+        </div>
+        <div class="summary-item">
+          <span>Match</span>
+          <strong id="matchLabel">--</strong>
+        </div>
+        <div class="summary-item">
+          <span>Score Diff</span>
+          <strong id="scoreDiff">--</strong>
+        </div>
+      </div>
+
+      <div class="alliance-grid">
+        <article class="alliance red">
+          <h3>Red Alliance</h3>
+          <p id="redTeams"></p>
+          <dl>
+            <div><dt>Estimate</dt><dd id="redEstimate">--</dd></div>
+            <div><dt>Confidence</dt><dd id="redConfidence">--</dd></div>
+          </dl>
+        </article>
+        <article class="alliance blue">
+          <h3>Blue Alliance</h3>
+          <p id="blueTeams"></p>
+          <dl>
+            <div><dt>Estimate</dt><dd id="blueEstimate">--</dd></div>
+            <div><dt>Confidence</dt><dd id="blueConfidence">--</dd></div>
+          </dl>
+        </article>
+      </div>
     </section>
 
     <section>

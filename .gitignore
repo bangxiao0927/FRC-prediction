@@ -10,6 +10,8 @@ config.json
 
 # Local data/cache generated while developing or scouting
 data/cache/
+data/prediction.json
+data/stats.csv
 data/raw/
 data/processed/
 
