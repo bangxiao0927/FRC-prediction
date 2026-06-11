@@ -244,6 +244,41 @@ dd {
   height: 100%;
 }
 
+.match-teams {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 12px;
+  font-size: 14px;
+  color: #475569;
+}
+
+.chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.chip-red {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+
+.chip-blue {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+tr.row-red td {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+tr.row-blue td {
+  background: rgba(37, 99, 235, 0.08);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

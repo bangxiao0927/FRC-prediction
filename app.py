@@ -59,7 +59,7 @@ def api_run_prediction():
         "--stats",
         "--top", str(top_count),
         "--stats-csv", str(STATS_PATH),
-        "--phase", "qm"
+        "--phase", infer_stats_phase(match_key)
     ])
     if stats_result.returncode != 0:
         return cli_error_response("Failed to generate team stats.", stats_result)
@@ -105,6 +105,23 @@ def run_cli(args):
         check=False
     )
 
+
+def infer_stats_phase(match_key):
+    """Pick the stats filter that matches how the CLI scores this match.
+
+    Qualification matches use qualification-only stats; elimination matches use
+    qualification plus played elimination matches. Mirrors normalize_match_key
+    in the CLI so the dashboard table lines up with the prediction.
+    """
+    key = (match_key or "").strip().lower()
+    if not key:
+        return "qm"  # upcoming matches are typically qualification
+    token = key.split("_")[-1]  # drop the event prefix if present
+    if token.isdigit() or token.startswith("qm"):
+        return "qm"
+    if token.startswith(("qf", "sf", "f")):
+        return "elim"
+    return "qm"
 
 def cli_error_response(message, result, hint=""):
     return jsonify({

@@ -9,6 +9,7 @@ const errorPanel = document.getElementById("errorPanel");
 const predictionPanel = document.getElementById("predictionPanel");
 const autoRefreshToggle = document.getElementById("autoRefresh");
 const autoIntervalSelect = document.getElementById("autoInterval");
+const matchTeamsLabel = document.getElementById("matchTeams");
 
 let chart;
 let autoTimer = null;
@@ -96,10 +97,48 @@ function setBusy(busy) {
   refreshButton.disabled = busy;
 }
 
-function renderTable(rows) {
+function allianceColorOf(prediction, teamKey) {
+  if (!prediction) {
+    return null;
+  }
+  if ((prediction.red_teams || []).includes(teamKey)) {
+    return "red";
+  }
+  if ((prediction.blue_teams || []).includes(teamKey)) {
+    return "blue";
+  }
+  return null;
+}
+
+function renderMatchTeams(prediction, rows) {
+  const red = (prediction && prediction.red_teams) || [];
+  const blue = (prediction && prediction.blue_teams) || [];
+  if (red.length === 0 && blue.length === 0) {
+    matchTeamsLabel.hidden = true;
+    return;
+  }
+
+  const averageByTeam = new Map(rows.map((row) => [row.team_key, row.average_score]));
+  const label = (team) => {
+    const avg = averageByTeam.get(team);
+    return avg === undefined ? team : `${team} (${formatNumber(avg, 1)})`;
+  };
+
+  matchTeamsLabel.innerHTML =
+    `<strong>${prediction.match_key || "match"}</strong>` +
+    `<span class="chip chip-red">Red: ${red.map(label).join(", ")}</span>` +
+    `<span class="chip chip-blue">Blue: ${blue.map(label).join(", ")}</span>`;
+  matchTeamsLabel.hidden = false;
+}
+
+function renderTable(rows, prediction) {
   tableBody.innerHTML = "";
   rows.forEach((row) => {
     const tr = document.createElement("tr");
+    const side = allianceColorOf(prediction, row.team_key);
+    if (side) {
+      tr.classList.add(side === "red" ? "row-red" : "row-blue");
+    }
     tr.innerHTML = `
       <td>${row.rank}</td>
       <td>${row.team_key}</td>
@@ -112,13 +151,24 @@ function renderTable(rows) {
   });
 }
 
-function renderChart(rows) {
+function barColor(side) {
+  if (side === "red") {
+    return "rgba(220, 38, 38, 0.8)";
+  }
+  if (side === "blue") {
+    return "rgba(37, 99, 235, 0.8)";
+  }
+  return "rgba(148, 163, 184, 0.55)";
+}
+
+function renderChart(rows, prediction) {
   if (typeof Chart === "undefined") {
     // Chart.js (loaded from CDN) is unavailable; keep the table usable.
     return;
   }
   const labels = rows.map((row) => row.team_key);
   const data = rows.map((row) => Number(row.average_score));
+  const colors = rows.map((row) => barColor(allianceColorOf(prediction, row.team_key)));
 
   const ctx = document.getElementById("statsChart").getContext("2d");
   if (chart) {
@@ -132,8 +182,7 @@ function renderChart(rows) {
         {
           label: "Average Score",
           data,
-          backgroundColor: "rgba(37, 99, 235, 0.65)",
-          borderColor: "rgba(30, 64, 175, 0.9)",
+          backgroundColor: colors,
           borderWidth: 1
         }
       ]
@@ -170,8 +219,9 @@ function renderPrediction(prediction) {
 }
 
 function renderData(rows, prediction) {
-  renderTable(rows);
-  renderChart(rows.slice(0, 12));
+  renderMatchTeams(prediction, rows);
+  renderTable(rows, prediction);
+  renderChart(rows.slice(0, 12), prediction);
   renderPrediction(prediction);
 }
 
