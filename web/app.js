@@ -110,7 +110,17 @@ function allianceColorOf(prediction, teamKey) {
   return null;
 }
 
-function renderMatchTeams(prediction, rows) {
+function teamAverage(teamKey, rowsMap, matchTeamStats) {
+  if (rowsMap.has(teamKey)) {
+    return Number(rowsMap.get(teamKey));
+  }
+  if (matchTeamStats && matchTeamStats[teamKey] !== undefined) {
+    return Number(matchTeamStats[teamKey].average_score);
+  }
+  return null;
+}
+
+function renderMatchTeams(prediction, rows, matchTeamStats) {
   const red = (prediction && prediction.red_teams) || [];
   const blue = (prediction && prediction.blue_teams) || [];
   if (red.length === 0 && blue.length === 0) {
@@ -118,10 +128,10 @@ function renderMatchTeams(prediction, rows) {
     return;
   }
 
-  const averageByTeam = new Map(rows.map((row) => [row.team_key, row.average_score]));
+  const rowsMap = new Map(rows.map((row) => [row.team_key, row.average_score]));
   const label = (team) => {
-    const avg = averageByTeam.get(team);
-    return avg === undefined ? team : `${team} (${formatNumber(avg, 1)})`;
+    const avg = teamAverage(team, rowsMap, matchTeamStats);
+    return avg === null ? team : `${team} (${formatNumber(avg, 1)})`;
   };
 
   matchTeamsLabel.innerHTML =
@@ -161,14 +171,40 @@ function barColor(side) {
   return "rgba(148, 163, 184, 0.55)";
 }
 
-function renderChart(rows, prediction) {
+function renderChart(rows, prediction, matchTeamStats) {
   if (typeof Chart === "undefined") {
     // Chart.js (loaded from CDN) is unavailable; keep the table usable.
     return;
   }
-  const labels = rows.map((row) => row.team_key);
-  const data = rows.map((row) => Number(row.average_score));
-  const colors = rows.map((row) => barColor(allianceColorOf(prediction, row.team_key)));
+  // Show the top teams by average, but always include the selected match's
+  // teams even if they rank lower, so the highlight is meaningful.
+  const rowsMap = new Map(rows.map((row) => [row.team_key, row.average_score]));
+  const items = [];
+  const seen = new Set();
+  rows.slice(0, 12).forEach((row) => {
+    items.push({ team: row.team_key, avg: Number(row.average_score) });
+    seen.add(row.team_key);
+  });
+  const matchTeams = [
+    ...((prediction && prediction.red_teams) || []),
+    ...((prediction && prediction.blue_teams) || [])
+  ];
+  matchTeams.forEach((team) => {
+    if (seen.has(team)) {
+      return;
+    }
+    const avg = teamAverage(team, rowsMap, matchTeamStats);
+    if (avg === null || Number.isNaN(avg)) {
+      return;
+    }
+    items.push({ team, avg });
+    seen.add(team);
+  });
+  items.sort((left, right) => right.avg - left.avg);
+
+  const labels = items.map((item) => item.team);
+  const data = items.map((item) => item.avg);
+  const colors = items.map((item) => barColor(allianceColorOf(prediction, item.team)));
 
   const ctx = document.getElementById("statsChart").getContext("2d");
   if (chart) {
@@ -243,10 +279,10 @@ function renderPrediction(prediction) {
   document.getElementById("blueMatches").textContent = formatNumber(prediction.blue_average_matches, 1);
 }
 
-function renderData(rows, prediction) {
-  renderMatchTeams(prediction, rows);
+function renderData(rows, prediction, matchTeamStats) {
+  renderMatchTeams(prediction, rows, matchTeamStats);
   renderTable(rows, prediction);
-  renderChart(rows.slice(0, 12), prediction);
+  renderChart(rows, prediction, matchTeamStats);
   renderPrediction(prediction);
 }
 
@@ -260,7 +296,7 @@ async function refreshFiles() {
       fetchJson("/api/prediction")
     ]);
 
-    renderData(parseCsv(statsCsv), prediction);
+    renderData(parseCsv(statsCsv), prediction, {});
     statusLabel.textContent = "Updated from files";
   } catch (error) {
     // First run before any data exists: guide the user instead of erroring.
@@ -286,7 +322,7 @@ async function runPrediction() {
       top: topInput.value
     });
 
-    renderData(result.stats, result.prediction);
+    renderData(result.stats, result.prediction, result.match_team_stats || {});
     const stamp = new Date(result.generated_at).toLocaleTimeString();
     const autoSuffix = autoRefreshToggle.checked
       ? ` · auto every ${autoIntervalSelect.value}s`
