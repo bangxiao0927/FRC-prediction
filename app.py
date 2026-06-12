@@ -54,12 +54,13 @@ def api_run_prediction():
         return jsonify({"error": "build/frc_prediction not found. Run cmake --build build first."}), 500
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    phase = infer_stats_phase(match_key)
     stats_result = run_cli([
         "--event", event_key,
         "--stats",
         "--top", str(top_count),
         "--stats-csv", str(STATS_PATH),
-        "--phase", "qm"
+        "--phase", phase
     ])
     if stats_result.returncode != 0:
         return cli_error_response("Failed to generate team stats.", stats_result)
@@ -81,12 +82,14 @@ def api_run_prediction():
             hint = "This event has no upcoming matches. Enter a specific match key, for example 2024casj_qm1."
         return cli_error_response("Failed to generate prediction.", prediction_result, hint)
 
+    prediction = read_prediction_json()
     return jsonify({
         "event_key": event_key,
         "match_key": match_key,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "stats": read_stats_rows(),
-        "prediction": read_prediction_json()
+        "prediction": prediction,
+        "match_team_stats": collect_match_team_stats(event_key, phase, prediction)
     })
 
 
@@ -106,6 +109,23 @@ def run_cli(args):
     )
 
 
+def infer_stats_phase(match_key):
+    """Pick the stats filter that matches how the CLI scores this match.
+
+    Qualification matches use qualification-only stats; elimination matches use
+    qualification plus played elimination matches. Mirrors normalize_match_key
+    in the CLI so the dashboard table lines up with the prediction.
+    """
+    key = (match_key or "").strip().lower()
+    if not key:
+        return "qm"  # upcoming matches are typically qualification
+    token = key.split("_")[-1]  # drop the event prefix if present
+    if token.isdigit() or token.startswith("qm"):
+        return "qm"
+    if token.startswith(("qf", "sf", "f")):
+        return "elim"
+    return "qm"
+
 def cli_error_response(message, result, hint=""):
     return jsonify({
         "error": message,
@@ -123,6 +143,33 @@ def read_stats_rows():
 def read_prediction_json():
     return app.json.loads(PREDICTION_PATH.read_text())
 
+
+def collect_match_team_stats(event_key, phase, prediction):
+    """Return per-team stats for the predicted match's teams.
+
+    Uses a wide --stats-json pull so the match's teams are always available,
+    even when they rank outside the dashboard table's Top N.
+    """
+    teams = list(prediction.get("red_teams", [])) + list(prediction.get("blue_teams", []))
+    if not teams:
+        return {}
+
+    result = run_cli([
+        "--event", event_key,
+        "--stats-json",
+        "--top", "1000",
+        "--phase", phase
+    ])
+    if result.returncode != 0:
+        return {}
+
+    try:
+        rows = app.json.loads(result.stdout)
+    except ValueError:
+        return {}
+
+    by_team = {row.get("team_key"): row for row in rows}
+    return {team: by_team[team] for team in teams if team in by_team}
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=True)

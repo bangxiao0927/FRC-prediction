@@ -9,6 +9,7 @@ const errorPanel = document.getElementById("errorPanel");
 const predictionPanel = document.getElementById("predictionPanel");
 const autoRefreshToggle = document.getElementById("autoRefresh");
 const autoIntervalSelect = document.getElementById("autoInterval");
+const matchTeamsLabel = document.getElementById("matchTeams");
 
 let chart;
 let autoTimer = null;
@@ -96,10 +97,58 @@ function setBusy(busy) {
   refreshButton.disabled = busy;
 }
 
-function renderTable(rows) {
+function allianceColorOf(prediction, teamKey) {
+  if (!prediction) {
+    return null;
+  }
+  if ((prediction.red_teams || []).includes(teamKey)) {
+    return "red";
+  }
+  if ((prediction.blue_teams || []).includes(teamKey)) {
+    return "blue";
+  }
+  return null;
+}
+
+function teamAverage(teamKey, rowsMap, matchTeamStats) {
+  if (rowsMap.has(teamKey)) {
+    return Number(rowsMap.get(teamKey));
+  }
+  if (matchTeamStats && matchTeamStats[teamKey] !== undefined) {
+    return Number(matchTeamStats[teamKey].average_score);
+  }
+  return null;
+}
+
+function renderMatchTeams(prediction, rows, matchTeamStats) {
+  const red = (prediction && prediction.red_teams) || [];
+  const blue = (prediction && prediction.blue_teams) || [];
+  if (red.length === 0 && blue.length === 0) {
+    matchTeamsLabel.hidden = true;
+    return;
+  }
+
+  const rowsMap = new Map(rows.map((row) => [row.team_key, row.average_score]));
+  const label = (team) => {
+    const avg = teamAverage(team, rowsMap, matchTeamStats);
+    return avg === null ? team : `${team} (${formatNumber(avg, 1)})`;
+  };
+
+  matchTeamsLabel.innerHTML =
+    `<strong>${prediction.match_key || "match"}</strong>` +
+    `<span class="chip chip-red">Red: ${red.map(label).join(", ")}</span>` +
+    `<span class="chip chip-blue">Blue: ${blue.map(label).join(", ")}</span>`;
+  matchTeamsLabel.hidden = false;
+}
+
+function renderTable(rows, prediction) {
   tableBody.innerHTML = "";
   rows.forEach((row) => {
     const tr = document.createElement("tr");
+    const side = allianceColorOf(prediction, row.team_key);
+    if (side) {
+      tr.classList.add(side === "red" ? "row-red" : "row-blue");
+    }
     tr.innerHTML = `
       <td>${row.rank}</td>
       <td>${row.team_key}</td>
@@ -112,13 +161,50 @@ function renderTable(rows) {
   });
 }
 
-function renderChart(rows) {
+function barColor(side) {
+  if (side === "red") {
+    return "rgba(220, 38, 38, 0.8)";
+  }
+  if (side === "blue") {
+    return "rgba(37, 99, 235, 0.8)";
+  }
+  return "rgba(148, 163, 184, 0.55)";
+}
+
+function renderChart(rows, prediction, matchTeamStats) {
   if (typeof Chart === "undefined") {
     // Chart.js (loaded from CDN) is unavailable; keep the table usable.
     return;
   }
-  const labels = rows.map((row) => row.team_key);
-  const data = rows.map((row) => Number(row.average_score));
+  // Show the top teams by average, but always include the selected match's
+  // teams even if they rank lower, so the highlight is meaningful.
+  const rowsMap = new Map(rows.map((row) => [row.team_key, row.average_score]));
+  const items = [];
+  const seen = new Set();
+  rows.slice(0, 12).forEach((row) => {
+    items.push({ team: row.team_key, avg: Number(row.average_score) });
+    seen.add(row.team_key);
+  });
+  const matchTeams = [
+    ...((prediction && prediction.red_teams) || []),
+    ...((prediction && prediction.blue_teams) || [])
+  ];
+  matchTeams.forEach((team) => {
+    if (seen.has(team)) {
+      return;
+    }
+    const avg = teamAverage(team, rowsMap, matchTeamStats);
+    if (avg === null || Number.isNaN(avg)) {
+      return;
+    }
+    items.push({ team, avg });
+    seen.add(team);
+  });
+  items.sort((left, right) => right.avg - left.avg);
+
+  const labels = items.map((item) => item.team);
+  const data = items.map((item) => item.avg);
+  const colors = items.map((item) => barColor(allianceColorOf(prediction, item.team)));
 
   const ctx = document.getElementById("statsChart").getContext("2d");
   if (chart) {
@@ -132,8 +218,7 @@ function renderChart(rows) {
         {
           label: "Average Score",
           data,
-          backgroundColor: "rgba(37, 99, 235, 0.65)",
-          borderColor: "rgba(30, 64, 175, 0.9)",
+          backgroundColor: colors,
           borderWidth: 1
         }
       ]
@@ -157,21 +242,47 @@ function renderChart(rows) {
 
 function renderPrediction(prediction) {
   predictionPanel.hidden = false;
-  document.getElementById("redWin").textContent = formatPercent(prediction.red_win_probability);
-  document.getElementById("blueWin").textContent = formatPercent(prediction.blue_win_probability);
+  const redWin = Number(prediction.red_win_probability) || 0;
+  const blueWin = Number(prediction.blue_win_probability) || 0;
+
+  // Win-probability bar. Normalize in case the two values don't sum to exactly 1.
+  const total = redWin + blueWin || 1;
+  const redPct = (redWin / total) * 100;
+  document.getElementById("winbarRed").style.width = `${redPct}%`;
+  document.getElementById("winbarBlue").style.width = `${100 - redPct}%`;
+  document.getElementById("redWin").textContent = formatPercent(redWin);
+  document.getElementById("blueWin").textContent = formatPercent(blueWin);
   document.getElementById("matchLabel").textContent = prediction.match_key || "--";
-  document.getElementById("scoreDiff").textContent = formatNumber(prediction.adjusted_score_diff_estimate, 1);
+
+  // Favored side + predicted margin.
+  const margin = Number(prediction.adjusted_score_diff_estimate) || 0;
+  const redFavored = margin >= 0;
+  const favored = redFavored ? "Red" : "Blue";
+  const favoredPct = formatPercent(redFavored ? redWin : blueWin);
+  const callout = document.getElementById("winnerCallout");
+  callout.textContent =
+    `${favored} favored · ${favoredPct} · margin ${formatNumber(Math.abs(margin), 1)} pts`;
+  callout.className = `winner-callout ${redFavored ? "red" : "blue"}`;
+
+  // Alliance rosters.
   document.getElementById("redTeams").textContent = (prediction.red_teams || []).join(", ");
   document.getElementById("blueTeams").textContent = (prediction.blue_teams || []).join(", ");
+
+  // Side-by-side metrics.
   document.getElementById("redEstimate").textContent = formatNumber(prediction.red_score_total_estimate, 1);
   document.getElementById("blueEstimate").textContent = formatNumber(prediction.blue_score_total_estimate, 1);
+  document.getElementById("redWinMetric").textContent = formatPercent(redWin);
+  document.getElementById("blueWinMetric").textContent = formatPercent(blueWin);
   document.getElementById("redConfidence").textContent = formatPercent(prediction.red_confidence);
   document.getElementById("blueConfidence").textContent = formatPercent(prediction.blue_confidence);
+  document.getElementById("redMatches").textContent = formatNumber(prediction.red_average_matches, 1);
+  document.getElementById("blueMatches").textContent = formatNumber(prediction.blue_average_matches, 1);
 }
 
-function renderData(rows, prediction) {
-  renderTable(rows);
-  renderChart(rows.slice(0, 12));
+function renderData(rows, prediction, matchTeamStats) {
+  renderMatchTeams(prediction, rows, matchTeamStats);
+  renderTable(rows, prediction);
+  renderChart(rows, prediction, matchTeamStats);
   renderPrediction(prediction);
 }
 
@@ -185,11 +296,16 @@ async function refreshFiles() {
       fetchJson("/api/prediction")
     ]);
 
-    renderData(parseCsv(statsCsv), prediction);
+    renderData(parseCsv(statsCsv), prediction, {});
     statusLabel.textContent = "Updated from files";
   } catch (error) {
-    showError(error.message);
-    statusLabel.textContent = "Error";
+    // First run before any data exists: guide the user instead of erroring.
+    if (String(error.message).includes("404")) {
+      statusLabel.textContent = "Enter an event and press Run to begin";
+    } else {
+      showError(error.message);
+      statusLabel.textContent = "Error";
+    }
   } finally {
     setBusy(false);
   }
@@ -206,7 +322,7 @@ async function runPrediction() {
       top: topInput.value
     });
 
-    renderData(result.stats, result.prediction);
+    renderData(result.stats, result.prediction, result.match_team_stats || {});
     const stamp = new Date(result.generated_at).toLocaleTimeString();
     const autoSuffix = autoRefreshToggle.checked
       ? ` · auto every ${autoIntervalSelect.value}s`

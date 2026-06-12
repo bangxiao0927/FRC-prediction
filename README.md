@@ -139,11 +139,10 @@ cmake --build build
 
 ### Web Dashboard (Flask)
 
-1. Generate data files:
+1. Build the CLI (the dashboard calls `build/frc_prediction`):
 
 ```bash
-./build/frc_prediction --event 2024casj --stats --top 20 --stats-csv data/stats.csv
-./build/frc_prediction --event 2024casj --predict-upcoming --json --output data/prediction.json
+cmake --build build
 ```
 
 2. Start the web server:
@@ -155,7 +154,19 @@ pip install -r requirements.txt
 python app.py
 ```
 
-3. Open `http://127.0.0.1:5000`.
+3. Open `http://127.0.0.1:5000`, enter an event key (and optionally a match),
+   then click **Run**. The dashboard runs the CLI for you — no need to generate
+   files by hand.
+
+The dashboard provides:
+
+- A **win-probability bar** plus a red-left / blue-right comparison of each
+  alliance (estimated score, win probability, confidence, average matches).
+- A **Team Stats** table and chart for the event; the selected match's teams are
+  highlighted (red/blue) and listed above the chart with their averages.
+- **Match shorthand**: type `3`, `qm3`, or `sf2m1` instead of the full key.
+- **Auto-refresh** with a configurable interval to keep predictions current
+  during a live event.
 
 Examples:
 
