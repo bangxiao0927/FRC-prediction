@@ -63,6 +63,12 @@ Outputs:
 - Alliance score estimates
 - Match win probability
 
+The CLI `--picklist` ranks teams from qualification play using a weighted mix of
+strength (average score), consistency (low score variance), and trend (recent vs
+early improvement), damped by how many matches a team has played. Use
+`--strategy balanced|offense|consistency` to change the mix, `--exclude` to drop
+already-picked teams, and `--before MATCH_KEY` to rank as of a point in the event.
+
 ## Project Structure
 
 ```text
@@ -192,6 +198,10 @@ Examples:
 ./build/frc_prediction --event 2024casj --evaluate --phase qm
 ./build/frc_prediction --event 2024casj --evaluate --phase elim --eval-json data/eval.json
 ./build/frc_prediction --event 2024casj --evaluate --phase all --eval-csv data/eval.csv
+./build/frc_prediction --event 2024casj --picklist --top 24
+./build/frc_prediction --event 2024casj --picklist --strategy offense --exclude 1678,254
+./build/frc_prediction --event 2024casj --picklist --before qm40 --json
+./build/frc_prediction --event 2024casj --picklist --picklist-csv data/picklist.csv
 
 Default prediction output path when using --json without --output:
 

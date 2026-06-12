@@ -61,6 +61,10 @@ FRC Prediction 是一个面向 FRC 赛事的数据预测与选队辅助工具。
 - 联盟组合预估分数
 - 淘汰赛对局胜率
 
+CLI 的 `--picklist` 会根据资格赛表现给队伍打分排序，综合三项：强度（均分）、稳定性（分数方差越小越好）、
+趋势（近期相对早期的提升），并按已打场数做置信度衰减。可用 `--strategy balanced|offense|consistency`
+切换权重，`--exclude` 排除已被选走的队伍，`--before MATCH_KEY` 截止到赛事某一刻排名。
+
 ## 项目结构
 
 ```text

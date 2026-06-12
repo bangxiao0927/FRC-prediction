@@ -7,6 +7,7 @@
 
 #include "../src/predictor.h"
 #include "../src/stats.h"
+#include "../src/picklist.h"
 
 namespace {
 
@@ -170,6 +171,51 @@ int test_cutoff_excludes_target_and_later_matches() {
     return failures;
 }
 
+int test_picklist_ranks_and_excludes() {
+    auto qual_match = [](int number, const std::string& red, int red_score,
+                         const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    // frcStrong consistently scores high; frcWeak scores low; frcMid in between.
+    matches.push_back(qual_match(1, "frcStrong", 150, "frcWeak", 40));
+    matches.push_back(qual_match(2, "frcStrong", 150, "frcMid", 90));
+    matches.push_back(qual_match(3, "frcMid", 95, "frcWeak", 45));
+    matches.push_back(qual_match(4, "frcStrong", 150, "frcWeak", 35));
+    matches.push_back(qual_match(5, "frcMid", 85, "frcStrong", 150));
+
+    PicklistWeights weights;  // balanced default
+    std::vector<PicklistEntry> picklist =
+        compute_picklist(matches, MatchFilter::QualificationOnly,
+                         nlohmann::json(nullptr), {}, weights, 6);
+
+    int failures = 0;
+    failures += expect_true(!picklist.empty() && picklist.front().team_key == "frcStrong",
+                            "the strongest, steadiest team should rank first");
+
+    // Excluding the top team should drop it from the result.
+    std::vector<PicklistEntry> without_strong =
+        compute_picklist(matches, MatchFilter::QualificationOnly,
+                         nlohmann::json(nullptr), {"frcStrong"}, weights, 6);
+    bool strong_present = false;
+    for (const auto& entry : without_strong) {
+        if (entry.team_key == "frcStrong") {
+            strong_present = true;
+        }
+    }
+    failures += expect_true(!strong_present, "excluded teams must not appear in the picklist");
+    return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -178,5 +224,6 @@ int main() {
     failures += test_event_adjustment_changes_prediction();
     failures += test_total_uses_scheduled_team_count();
     failures += test_cutoff_excludes_target_and_later_matches();
+    failures += test_picklist_ranks_and_excludes();
     return failures;
 }
