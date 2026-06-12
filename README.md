@@ -166,7 +166,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-3. Open `http://127.0.0.1:5000`, enter an event key (and optionally a match),
+3. Open `http://127.0.0.1:5001`, enter an event key (and optionally a match),
    then click **Run**. The dashboard runs the CLI for you — no need to generate
    files by hand.
 
