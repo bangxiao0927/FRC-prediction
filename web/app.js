@@ -206,16 +206,41 @@ function renderChart(rows, prediction) {
 
 function renderPrediction(prediction) {
   predictionPanel.hidden = false;
-  document.getElementById("redWin").textContent = formatPercent(prediction.red_win_probability);
-  document.getElementById("blueWin").textContent = formatPercent(prediction.blue_win_probability);
+  const redWin = Number(prediction.red_win_probability) || 0;
+  const blueWin = Number(prediction.blue_win_probability) || 0;
+
+  // Win-probability bar. Normalize in case the two values don't sum to exactly 1.
+  const total = redWin + blueWin || 1;
+  const redPct = (redWin / total) * 100;
+  document.getElementById("winbarRed").style.width = `${redPct}%`;
+  document.getElementById("winbarBlue").style.width = `${100 - redPct}%`;
+  document.getElementById("redWin").textContent = formatPercent(redWin);
+  document.getElementById("blueWin").textContent = formatPercent(blueWin);
   document.getElementById("matchLabel").textContent = prediction.match_key || "--";
-  document.getElementById("scoreDiff").textContent = formatNumber(prediction.adjusted_score_diff_estimate, 1);
+
+  // Favored side + predicted margin.
+  const margin = Number(prediction.adjusted_score_diff_estimate) || 0;
+  const redFavored = margin >= 0;
+  const favored = redFavored ? "Red" : "Blue";
+  const favoredPct = formatPercent(redFavored ? redWin : blueWin);
+  const callout = document.getElementById("winnerCallout");
+  callout.textContent =
+    `${favored} favored · ${favoredPct} · margin ${formatNumber(Math.abs(margin), 1)} pts`;
+  callout.className = `winner-callout ${redFavored ? "red" : "blue"}`;
+
+  // Alliance rosters.
   document.getElementById("redTeams").textContent = (prediction.red_teams || []).join(", ");
   document.getElementById("blueTeams").textContent = (prediction.blue_teams || []).join(", ");
+
+  // Side-by-side metrics.
   document.getElementById("redEstimate").textContent = formatNumber(prediction.red_score_total_estimate, 1);
   document.getElementById("blueEstimate").textContent = formatNumber(prediction.blue_score_total_estimate, 1);
+  document.getElementById("redWinMetric").textContent = formatPercent(redWin);
+  document.getElementById("blueWinMetric").textContent = formatPercent(blueWin);
   document.getElementById("redConfidence").textContent = formatPercent(prediction.red_confidence);
   document.getElementById("blueConfidence").textContent = formatPercent(prediction.blue_confidence);
+  document.getElementById("redMatches").textContent = formatNumber(prediction.red_average_matches, 1);
+  document.getElementById("blueMatches").textContent = formatNumber(prediction.blue_average_matches, 1);
 }
 
 function renderData(rows, prediction) {

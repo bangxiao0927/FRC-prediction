@@ -46,43 +46,51 @@
     <section id="errorPanel" class="error-panel" hidden></section>
 
     <section id="predictionPanel" class="prediction-panel" hidden>
-      <h2>Prediction</h2>
-      <div class="summary-grid">
-        <div class="summary-item red">
-          <span>Red Win</span>
-          <strong id="redWin">--</strong>
-        </div>
-        <div class="summary-item blue">
-          <span>Blue Win</span>
-          <strong id="blueWin">--</strong>
-        </div>
-        <div class="summary-item">
-          <span>Match</span>
-          <strong id="matchLabel">--</strong>
-        </div>
-        <div class="summary-item">
-          <span>Score Diff</span>
-          <strong id="scoreDiff">--</strong>
-        </div>
+      <div class="prediction-head">
+        <h2>Prediction</h2>
+        <span id="matchLabel" class="match-tag">--</span>
       </div>
 
-      <div class="alliance-grid">
-        <article class="alliance red">
+      <div class="winbar" role="img" aria-label="Win probability">
+        <div id="winbarRed" class="winbar-seg red" style="width: 50%">
+          <span id="redWin">--</span>
+        </div>
+        <div id="winbarBlue" class="winbar-seg blue" style="width: 50%">
+          <span id="blueWin">--</span>
+        </div>
+      </div>
+      <p id="winnerCallout" class="winner-callout">--</p>
+
+      <div class="compare">
+        <div class="compare-side red">
           <h3>Red Alliance</h3>
-          <p id="redTeams"></p>
-          <dl>
-            <div><dt>Estimate</dt><dd id="redEstimate">--</dd></div>
-            <div><dt>Confidence</dt><dd id="redConfidence">--</dd></div>
-          </dl>
-        </article>
-        <article class="alliance blue">
+          <p id="redTeams" class="teams"></p>
+        </div>
+        <div class="compare-side blue">
           <h3>Blue Alliance</h3>
-          <p id="blueTeams"></p>
-          <dl>
-            <div><dt>Estimate</dt><dd id="blueEstimate">--</dd></div>
-            <div><dt>Confidence</dt><dd id="blueConfidence">--</dd></div>
-          </dl>
-        </article>
+          <p id="blueTeams" class="teams"></p>
+        </div>
+
+        <div class="metric">
+          <span class="m-red" id="redEstimate">--</span>
+          <span class="m-label">Est. Score</span>
+          <span class="m-blue" id="blueEstimate">--</span>
+        </div>
+        <div class="metric">
+          <span class="m-red" id="redWinMetric">--</span>
+          <span class="m-label">Win Prob</span>
+          <span class="m-blue" id="blueWinMetric">--</span>
+        </div>
+        <div class="metric">
+          <span class="m-red" id="redConfidence">--</span>
+          <span class="m-label">Confidence</span>
+          <span class="m-blue" id="blueConfidence">--</span>
+        </div>
+        <div class="metric">
+          <span class="m-red" id="redMatches">--</span>
+          <span class="m-label">Avg Matches</span>
+          <span class="m-blue" id="blueMatches">--</span>
+        </div>
       </div>
     </section>
 
