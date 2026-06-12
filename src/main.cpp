@@ -410,10 +410,13 @@ int main(int argc, char** argv) {
         if (match.value("comp_level", "") == "qm") {
             filter = MatchFilter::QualificationOnly;
         }
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches, filter);
+        // Only use matches scheduled before this one, so the prediction reflects
+        // what was known at match time (and works the same live or in replay).
+        std::map<std::string, TeamStats> stats =
+            compute_team_stats_before(matches, filter, match);
         if (stats.empty()) {
-            std::cerr << "No stats computed for " << event_key << ".\n";
-            return 1;
+            std::cerr << "Warning: no prior matches before " << match.value("key", "")
+                      << "; prediction will be a coin flip.\n";
         }
 
         MatchPrediction prediction = predict_match(
@@ -519,15 +522,9 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        MatchFilter eval_filter = MatchFilter::AllPlayed;
-        if (!resolve_phase_filter(phase_arg, MatchFilter::AllPlayed, eval_filter)) {
+        if (!(phase_arg.empty() || phase_arg == "all" ||
+              phase_arg == "qm" || phase_arg == "elim")) {
             std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
-            return 1;
-        }
-
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches, eval_filter);
-        if (stats.empty()) {
-            std::cerr << "No stats computed for " << event_key << ".\n";
             return 1;
         }
 
@@ -547,6 +544,25 @@ int main(int argc, char** argv) {
             if (red_score < 0 || blue_score < 0) {
                 continue;
             }
+
+            // --phase scopes which matches are evaluated.
+            const std::string level = match.value("comp_level", "");
+            const bool is_qm = level == "qm";
+            const bool is_elim = level == "qf" || level == "sf" || level == "f";
+            if (phase_arg == "qm" && !is_qm) {
+                continue;
+            }
+            if (phase_arg == "elim" && !is_elim) {
+                continue;
+            }
+
+            // Backtest honestly: score each match using only the matches that
+            // happened before it, never the match itself or later ones.
+            const MatchFilter match_filter = is_qm
+                ? MatchFilter::QualificationOnly
+                : MatchFilter::QualificationPlusElimPlayed;
+            std::map<std::string, TeamStats> stats =
+                compute_team_stats_before(matches, match_filter, match);
 
             MatchPrediction prediction = predict_match(
                 match,

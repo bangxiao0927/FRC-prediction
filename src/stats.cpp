@@ -26,6 +26,25 @@ bool should_include_match(const nlohmann::json& match, MatchFilter filter) {
     return true;
 }
 
+int comp_level_order(const std::string& level) {
+    if (level == "qm") {
+        return 0;
+    }
+    if (level == "ef") {
+        return 1;
+    }
+    if (level == "qf") {
+        return 2;
+    }
+    if (level == "sf") {
+        return 3;
+    }
+    if (level == "f") {
+        return 4;
+    }
+    return 5;
+}
+
 void add_alliance_score(std::map<std::string, TeamStats>& stats,
                         const nlohmann::json& alliance,
                         int score) {
@@ -46,12 +65,40 @@ void add_alliance_score(std::map<std::string, TeamStats>& stats,
 
 }  // namespace
 
+MatchOrderKey match_order_key(const nlohmann::json& match) {
+    MatchOrderKey key;
+    key.level = comp_level_order(match.value("comp_level", ""));
+    key.set_number = match.value("set_number", 0);
+    key.match_number = match.value("match_number", 0);
+    return key;
+}
+
+bool match_order_before(const MatchOrderKey& a, const MatchOrderKey& b) {
+    if (a.level != b.level) {
+        return a.level < b.level;
+    }
+    if (a.set_number != b.set_number) {
+        return a.set_number < b.set_number;
+    }
+    return a.match_number < b.match_number;
+}
+
 std::map<std::string, TeamStats> compute_team_stats(const nlohmann::json& matches_json,
                                                     MatchFilter filter) {
+    return compute_team_stats_before(matches_json, filter, nlohmann::json(nullptr));
+}
+
+std::map<std::string, TeamStats> compute_team_stats_before(const nlohmann::json& matches_json,
+                                                           MatchFilter filter,
+                                                           const nlohmann::json& target_match) {
     std::map<std::string, TeamStats> stats;
     if (!matches_json.is_array()) {
         return stats;
     }
+
+    const bool has_cutoff = target_match.is_object();
+    const MatchOrderKey target_key =
+        has_cutoff ? match_order_key(target_match) : MatchOrderKey{};
 
     for (const auto& match : matches_json) {
         if (!match.contains("alliances") || !match["alliances"].is_object()) {
@@ -63,6 +110,11 @@ std::map<std::string, TeamStats> compute_team_stats(const nlohmann::json& matche
         }
 
         if (!should_include_match(match, filter)) {
+            continue;
+        }
+
+        // Cutoff: only count matches strictly before the target match.
+        if (has_cutoff && !match_order_before(match_order_key(match), target_key)) {
             continue;
         }
 

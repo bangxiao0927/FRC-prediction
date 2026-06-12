@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include "../src/predictor.h"
+#include "../src/stats.h"
 
 namespace {
 
@@ -134,6 +135,41 @@ int test_total_uses_scheduled_team_count() {
     return failures;
 }
 
+int test_cutoff_excludes_target_and_later_matches() {
+    auto qual_match = [](int number, const std::string& red, int red_score,
+                         const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(qual_match(1, "frcA", 100, "frcB", 50));
+    nlohmann::json target = qual_match(2, "frcA", 80, "frcC", 90);
+    matches.push_back(target);
+    matches.push_back(qual_match(3, "frcA", 200, "frcD", 10));
+
+    std::map<std::string, TeamStats> stats =
+        compute_team_stats_before(matches, MatchFilter::QualificationOnly, target);
+
+    int failures = 0;
+    failures += expect_true(stats.count("frcA") == 1 && stats["frcA"].matches_played == 1,
+                            "only qm1 should count before qm2");
+    failures += expect_true(stats.count("frcA") == 1 && stats["frcA"].total_score == 100,
+                            "qm2 and qm3 scores must not leak into pre-qm2 stats");
+    failures += expect_true(stats.count("frcC") == 0,
+                            "the target match's teams must not be counted from the target");
+    failures += expect_true(stats.count("frcD") == 0,
+                            "later matches must not be counted");
+    return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -141,5 +177,6 @@ int main() {
     failures += test_alliance_counts_include_teams_without_stats();
     failures += test_event_adjustment_changes_prediction();
     failures += test_total_uses_scheduled_team_count();
+    failures += test_cutoff_excludes_target_and_later_matches();
     return failures;
 }
