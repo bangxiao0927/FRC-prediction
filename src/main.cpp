@@ -106,7 +106,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming|--evaluate] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--eval-json FILE] [--eval-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming|--evaluate] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--eval-json FILE] [--eval-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -171,6 +171,20 @@ std::string normalize_match_key(const std::string& event_key, const std::string&
     return event_key + "_" + key;
 }
 
+// Finds a match by key (accepting shorthand) in the event's match list.
+nlohmann::json find_match_by_key(const nlohmann::json& matches,
+                                 const std::string& event_key,
+                                 const std::string& raw_key) {
+    const std::string resolved = normalize_match_key(event_key, raw_key);
+    for (const auto& entry : matches) {
+        if (entry.contains("key") && entry["key"].is_string() &&
+            entry["key"].get<std::string>() == resolved) {
+            return entry;
+        }
+    }
+    return nlohmann::json(nullptr);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -204,6 +218,7 @@ int main(int argc, char** argv) {
     const std::string phase_arg = get_arg_value(args, "--phase");
     const std::string eval_json_path = get_arg_value(args, "--eval-json");
     const std::string eval_csv_path = get_arg_value(args, "--eval-csv");
+    const std::string before_match_arg = get_arg_value(args, "--before");
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
@@ -262,8 +277,23 @@ int main(int argc, char** argv) {
             std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
             return 1;
         }
-        std::map<std::string, TeamStats> stats = compute_team_stats(matches, stats_filter);
-        if (stats.empty()) {
+        // --before makes the table reflect only matches before a target match,
+        // so the whole dashboard can show "as of this match".
+        std::map<std::string, TeamStats> stats;
+        if (!before_match_arg.empty()) {
+            nlohmann::json target = find_match_by_key(matches, event_key, before_match_arg);
+            if (target.is_null()) {
+                std::cerr << "Match key not found for --before: "
+                          << normalize_match_key(event_key, before_match_arg) << "\n";
+                return 1;
+            }
+            stats = compute_team_stats_before(matches, stats_filter, target);
+        } else {
+            stats = compute_team_stats(matches, stats_filter);
+        }
+        // With a cutoff, an early match can legitimately have no prior data; emit
+        // an empty (header-only) result instead of failing.
+        if (stats.empty() && before_match_arg.empty()) {
             std::cerr << "No stats computed for " << event_key << ".\n";
             return 1;
         }

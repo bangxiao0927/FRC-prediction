@@ -55,13 +55,18 @@ def api_run_prediction():
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     phase = infer_stats_phase(match_key)
-    stats_result = run_cli([
+    stats_args = [
         "--event", event_key,
         "--stats",
         "--top", str(top_count),
         "--stats-csv", str(STATS_PATH),
         "--phase", phase
-    ])
+    ]
+    # When a specific match is selected, show stats as of just before it so the
+    # whole dashboard reflects "up to that match".
+    if match_key:
+        stats_args.extend(["--before", match_key])
+    stats_result = run_cli(stats_args)
     if stats_result.returncode != 0:
         return cli_error_response("Failed to generate team stats.", stats_result)
 
@@ -89,7 +94,7 @@ def api_run_prediction():
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "stats": read_stats_rows(),
         "prediction": prediction,
-        "match_team_stats": collect_match_team_stats(event_key, phase, prediction)
+        "match_team_stats": collect_match_team_stats(event_key, phase, prediction, match_key)
     })
 
 
@@ -144,7 +149,7 @@ def read_prediction_json():
     return app.json.loads(PREDICTION_PATH.read_text())
 
 
-def collect_match_team_stats(event_key, phase, prediction):
+def collect_match_team_stats(event_key, phase, prediction, before=""):
     """Return per-team stats for the predicted match's teams.
 
     Uses a wide --stats-json pull so the match's teams are always available,
@@ -154,12 +159,15 @@ def collect_match_team_stats(event_key, phase, prediction):
     if not teams:
         return {}
 
-    result = run_cli([
+    args = [
         "--event", event_key,
         "--stats-json",
         "--top", "1000",
         "--phase", phase
-    ])
+    ]
+    if before:
+        args.extend(["--before", before])
+    result = run_cli(args)
     if result.returncode != 0:
         return {}
 
