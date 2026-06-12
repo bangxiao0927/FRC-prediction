@@ -175,6 +175,8 @@ python app.py
 - **Team Stats** 表格和图表；选中比赛的队伍会被红/蓝高亮，并在图表上方列出其均分。
 - **比赛简写**：可直接输入 `3`、`qm3`、`sf2m1`，不用写完整 key。
 - **自动刷新**：可配置间隔，赛事进行中保持预测更新。
+- **Picklist 区块**：选择策略（balanced/offense/consistency）、排除已选队伍，一键生成排名表 + 图表。
+  复用上方的 Event 和 Match 输入（Match 作为“截止到该场”的 cutoff）。
 
 示例：
 

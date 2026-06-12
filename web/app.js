@@ -10,8 +10,15 @@ const predictionPanel = document.getElementById("predictionPanel");
 const autoRefreshToggle = document.getElementById("autoRefresh");
 const autoIntervalSelect = document.getElementById("autoInterval");
 const matchTeamsLabel = document.getElementById("matchTeams");
+const picklistStrategy = document.getElementById("picklistStrategy");
+const picklistExclude = document.getElementById("picklistExclude");
+const picklistTop = document.getElementById("picklistTop");
+const buildPicklistButton = document.getElementById("buildPicklist");
+const picklistStatus = document.getElementById("picklistStatus");
+const picklistTableBody = document.querySelector("#picklistTable tbody");
 
 let chart;
+let picklistChart;
 let autoTimer = null;
 let isBusy = false;
 
@@ -383,5 +390,83 @@ autoIntervalSelect.addEventListener("change", () => {
     startAutoRefresh();
   }
 });
+
+function renderPicklistTable(teams) {
+  picklistTableBody.innerHTML = "";
+  teams.forEach((team) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${team.rank}</td>
+      <td>${team.team_key}</td>
+      <td>${formatNumber(team.picklist_score, 3)}</td>
+      <td>${formatNumber(team.average_score, 1)}</td>
+      <td>${formatNumber(team.stddev, 1)}</td>
+      <td>${formatNumber(team.trend, 1)}</td>
+      <td>${team.matches}</td>
+    `;
+    picklistTableBody.appendChild(tr);
+  });
+}
+
+function renderPicklistChart(teams) {
+  if (typeof Chart === "undefined") {
+    return;
+  }
+  const top = teams.slice(0, 15);
+  const labels = top.map((team) => team.team_key);
+  const data = top.map((team) => Number(team.picklist_score));
+
+  const ctx = document.getElementById("picklistChart").getContext("2d");
+  if (picklistChart) {
+    picklistChart.destroy();
+  }
+  picklistChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Picklist score",
+          data,
+          backgroundColor: "rgba(16, 185, 129, 0.75)",
+          borderWidth: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+}
+
+async function buildPicklist() {
+  clearError();
+  picklistStatus.textContent = "Building...";
+  buildPicklistButton.disabled = true;
+  try {
+    const result = await postJson("/api/picklist/run", {
+      event_key: eventInput.value,
+      strategy: picklistStrategy.value,
+      exclude: picklistExclude.value,
+      before: matchInput.value,
+      top: picklistTop.value
+    });
+
+    const teams = result.teams || [];
+    renderPicklistTable(teams);
+    renderPicklistChart(teams);
+    picklistStatus.textContent = `${teams.length} teams · ${result.strategy}`;
+  } catch (error) {
+    showError(error.message);
+    picklistStatus.textContent = "Error";
+  } finally {
+    buildPicklistButton.disabled = false;
+  }
+}
+
+buildPicklistButton.addEventListener("click", buildPicklist);
 
 refreshFiles();

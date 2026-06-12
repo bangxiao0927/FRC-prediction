@@ -179,6 +179,9 @@ The dashboard provides:
 - **Match shorthand**: type `3`, `qm3`, or `sf2m1` instead of the full key.
 - **Auto-refresh** with a configurable interval to keep predictions current
   during a live event.
+- A **Picklist** section: pick a strategy (balanced/offense/consistency), exclude
+  already-picked teams, and build a ranked table + chart. It reuses the Event and
+  Match fields (Match acts as an "as of" cutoff).
 
 Examples:
 
