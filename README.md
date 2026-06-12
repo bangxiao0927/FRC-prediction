@@ -28,6 +28,12 @@ We use C++ for performance and real-time compute needs, and vcpkg to simplify th
 
 ## Modeling Scope
 
+**No future-data leakage.** A prediction for a match only uses matches scheduled
+strictly before it (qualification predictions use earlier qualification matches;
+elimination predictions add played elimination matches). This means a team's
+average and match count reflect what was known at match time, so backtests
+(`--evaluate`) and live predictions use the exact same information.
+
 ### Qualification Stage
 
 Inputs:
