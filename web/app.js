@@ -263,8 +263,13 @@ async function refreshFiles() {
     renderData(parseCsv(statsCsv), prediction);
     statusLabel.textContent = "Updated from files";
   } catch (error) {
-    showError(error.message);
-    statusLabel.textContent = "Error";
+    // First run before any data exists: guide the user instead of erroring.
+    if (String(error.message).includes("404")) {
+      statusLabel.textContent = "Enter an event and press Run to begin";
+    } else {
+      showError(error.message);
+      statusLabel.textContent = "Error";
+    }
   } finally {
     setBusy(false);
   }

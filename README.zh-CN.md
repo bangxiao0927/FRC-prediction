@@ -143,11 +143,10 @@ cmake --build build
 
 ### Web Dashboard (Flask)
 
-1. 生成数据文件：
+1. 先编译 CLI（网页会调用 `build/frc_prediction`）：
 
 ```bash
-./build/frc_prediction --event 2024casj --stats --top 20 --stats-csv data/stats.csv
-./build/frc_prediction --event 2024casj --predict-upcoming --json --output data/prediction.json
+cmake --build build
 ```
 
 2. 启动服务：
@@ -159,7 +158,15 @@ pip install -r requirements.txt
 python app.py
 ```
 
-3. 浏览器打开 `http://127.0.0.1:5000`。
+3. 浏览器打开 `http://127.0.0.1:5000`，输入赛事 key（可选填一场比赛），点击 **Run**。
+   网页会自动帮你跑 CLI，不用手动生成数据文件。
+
+网页功能：
+
+- **胜率进度条** + 左红右蓝的联盟对比（预计得分、胜率、置信度、平均比赛数）。
+- **Team Stats** 表格和图表；选中比赛的队伍会被红/蓝高亮，并在图表上方列出其均分。
+- **比赛简写**：可直接输入 `3`、`qm3`、`sf2m1`，不用写完整 key。
+- **自动刷新**：可配置间隔，赛事进行中保持预测更新。
 
 示例：
 
