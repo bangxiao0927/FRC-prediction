@@ -233,7 +233,7 @@ data/predictions/<match_key>.json
 
 ## Picklist 策略（如何计算）
 
-Picklist 的核心目标是联盟互补，而不是简单的强到弱排序。
+Picklist 的核心目标是联盟互补，而不是简单的强到弱排序，同时输出会包含你自己队伍的数据概览。
 
 ### 输入特征
 

@@ -36,7 +36,14 @@ struct PicklistEntry {
     double overlap_penalty = 0.0;
 };
 
-std::vector<PicklistEntry> compute_picklist(
+struct PicklistSummary {
+    std::string self_team_key;
+    TeamPerformance self_performance;
+    double event_average_score = 0.0;
+    std::vector<PicklistEntry> entries;
+};
+
+PicklistSummary compute_picklist(
     const nlohmann::json& matches_json,
     MatchFilter filter,
     const nlohmann::json& before_match,

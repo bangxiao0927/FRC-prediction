@@ -96,7 +96,7 @@ bool is_before_cutoff(const nlohmann::json& match, const nlohmann::json& cutoff)
 
 }  // namespace
 
-std::vector<PicklistEntry> compute_picklist(
+PicklistSummary compute_picklist(
     const nlohmann::json& matches_json,
     MatchFilter filter,
     const nlohmann::json& before_match,
@@ -104,8 +104,10 @@ std::vector<PicklistEntry> compute_picklist(
     const PicklistWeights& weights,
     int confidence_match_count,
     const std::string& my_team_key) {
+    PicklistSummary summary;
+    summary.self_team_key = my_team_key;
     if (!matches_json.is_array()) {
-        return {};
+        return summary;
     }
 
     std::map<std::string, std::vector<std::pair<double, int>>> scores;
@@ -139,7 +141,7 @@ std::vector<PicklistEntry> compute_picklist(
 
     auto self_it = scores.find(my_team_key);
     if (self_it == scores.end()) {
-        return {};
+        return summary;
     }
 
     double event_total = 0.0;
@@ -161,8 +163,13 @@ std::vector<PicklistEntry> compute_picklist(
     const double self_avg = self_scores.empty() ? 0.0
         : self_total / static_cast<double>(self_scores.size());
 
-    std::vector<PicklistEntry> entries;
-    entries.reserve(scores.size());
+    summary.event_average_score = event_avg;
+    summary.self_performance.matches_played = static_cast<int>(self_scores.size());
+    summary.self_performance.average_score = self_avg;
+    summary.self_performance.std_dev = compute_std_dev(self_scores, self_avg);
+    summary.self_performance.recent_average = compute_recent_average(self_scores, 3);
+
+    summary.entries.reserve(scores.size());
     for (const auto& entry : scores) {
         const std::string& team_key = entry.first;
         if (team_key == my_team_key || exclude.count(team_key) > 0) {
@@ -205,12 +212,13 @@ std::vector<PicklistEntry> compute_picklist(
             + weights.trend * trend
             + weights.complement * complement
             - weights.overlap * overlap;
-        entries.push_back(pick);
+        summary.entries.push_back(pick);
     }
 
-    std::sort(entries.begin(), entries.end(), [](const PicklistEntry& left, const PicklistEntry& right) {
+    std::sort(summary.entries.begin(), summary.entries.end(),
+              [](const PicklistEntry& left, const PicklistEntry& right) {
         return left.picklist_score > right.picklist_score;
     });
 
-    return entries;
+    return summary;
 }
