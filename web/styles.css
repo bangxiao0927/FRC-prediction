@@ -340,6 +340,76 @@ dd {
   color: #1d4ed8;
 }
 
+.self-pad {
+  margin: 8px 0 18px;
+  padding: 18px 20px;
+  background: linear-gradient(135deg, #ecfdf5, #ffffff);
+  border: 1px solid #a7f3d0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.12);
+}
+
+.self-pad-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.self-pad-eyebrow {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #059669;
+}
+
+.self-pad-team {
+  font-size: 28px;
+  font-weight: 800;
+  color: #064e3b;
+}
+
+.self-pad-tag {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #047857;
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.self-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.self-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #d1fae5;
+  border-radius: 10px;
+}
+
+.self-tile-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.self-tile-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
 tr.row-red td {
   background: rgba(220, 38, 38, 0.08);
 }

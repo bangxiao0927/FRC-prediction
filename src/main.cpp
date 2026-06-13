@@ -762,18 +762,18 @@ int main(int argc, char** argv) {
 
         const std::set<std::string> exclude = parse_team_set(exclude_arg);
 
-        std::vector<PicklistEntry> picklist = compute_picklist(
+        PicklistSummary picklist = compute_picklist(
             matches, picklist_filter, before_match, exclude, weights,
             config.confidence_match_count, normalized_picklist_key);
-        if (picklist.empty()) {
+        if (picklist.entries.empty()) {
             std::cerr << "No picklist computed for " << event_key
                       << " (not enough match data yet).\n";
             return 1;
         }
 
         const int limit = top_count > 0
-            ? std::min(top_count, static_cast<int>(picklist.size()))
-            : static_cast<int>(picklist.size());
+            ? std::min(top_count, static_cast<int>(picklist.entries.size()))
+            : static_cast<int>(picklist.entries.size());
         const std::string strategy_name = strategy_arg.empty() ? "balanced" : strategy_arg;
 
         if (!picklist_csv_path.empty()) {
@@ -784,7 +784,7 @@ int main(int argc, char** argv) {
             }
             file << "rank,team_key,picklist_score,average_score,stddev,trend,matches,confidence\n";
             for (int i = 0; i < limit; ++i) {
-                const PicklistEntry& e = picklist[i];
+                const PicklistEntry& e = picklist.entries[i];
                 file << (i + 1) << "," << e.team_key << "," << e.picklist_score << ","
                      << e.average_score << "," << e.stddev << "," << e.trend << ","
                      << e.matches << "," << e.confidence << "\n";
@@ -797,10 +797,16 @@ int main(int argc, char** argv) {
                 {"event_key", event_key},
                 {"strategy", strategy_name},
                 {"phase", phase_arg.empty() ? "qm" : phase_arg},
+                {"self_team_key", picklist.self_team_key},
+                {"self_matches", picklist.self_performance.matches_played},
+                {"self_average_score", picklist.self_performance.average_score},
+                {"self_stddev", picklist.self_performance.std_dev},
+                {"self_recent_average", picklist.self_performance.recent_average},
+                {"event_average_score", picklist.event_average_score},
                 {"teams", nlohmann::json::array()}
             };
             for (int i = 0; i < limit; ++i) {
-                const PicklistEntry& e = picklist[i];
+                const PicklistEntry& e = picklist.entries[i];
                 output["teams"].push_back({
                     {"rank", i + 1},
                     {"team_key", e.team_key},
@@ -815,8 +821,13 @@ int main(int argc, char** argv) {
             std::cout << output.dump(2) << "\n";
         } else if (picklist_csv_path.empty()) {
             std::cout << "Picklist (" << event_key << ", strategy=" << strategy_name << "):\n";
+            std::cout << "  self=" << picklist.self_team_key
+                      << " avg=" << picklist.self_performance.average_score
+                      << " stddev=" << picklist.self_performance.std_dev
+                      << " recent=" << picklist.self_performance.recent_average
+                      << "\n";
             for (int i = 0; i < limit; ++i) {
-                const PicklistEntry& e = picklist[i];
+                const PicklistEntry& e = picklist.entries[i];
                 std::cout << "  " << (i + 1) << ". " << e.team_key
                           << " | score=" << e.picklist_score
                           << " avg=" << e.average_score

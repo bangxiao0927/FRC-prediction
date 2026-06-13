@@ -242,7 +242,7 @@ This project is early-stage. The first milestone is an MVP that can pull one eve
 
 ## Picklist Strategy (How Ranking Is Computed)
 
-Picklist recommendations are built to maximize alliance fit rather than raw strength.
+Picklist recommendations are built to maximize alliance fit rather than raw strength, and the output includes your team summary for context.
 
 ### Inputs
 

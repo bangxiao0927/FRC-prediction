@@ -17,6 +17,7 @@ const picklistTeam = document.getElementById("picklistTeam");
 const buildPicklistButton = document.getElementById("buildPicklist");
 const picklistStatus = document.getElementById("picklistStatus");
 const picklistTableBody = document.querySelector("#picklistTable tbody");
+const picklistSelfLabel = document.getElementById("picklistSelf");
 
 let chart;
 let picklistChart;
@@ -392,6 +393,32 @@ autoIntervalSelect.addEventListener("change", () => {
   }
 });
 
+function renderPicklistSelf(result) {
+  const selfTeam = result.self_team_key;
+  if (!selfTeam) {
+    picklistSelfLabel.hidden = true;
+    return;
+  }
+  // A prominent "pad" so the requesting team's status reads clearly and it is
+  // obvious the candidate list below is scored relative to (and excludes) it.
+  const tile = (label, value) =>
+    `<div class="self-tile"><span class="self-tile-value">${value}</span>` +
+    `<span class="self-tile-label">${label}</span></div>`;
+  picklistSelfLabel.innerHTML =
+    `<div class="self-pad-head">` +
+    `<div><span class="self-pad-eyebrow">Your Team</span>` +
+    `<span class="self-pad-team">${selfTeam}</span></div>` +
+    `<span class="self-pad-tag">Excluded from picks</span></div>` +
+    `<div class="self-tiles">` +
+    tile("Avg Score", formatNumber(result.self_average_score, 1)) +
+    tile("Recent Avg", formatNumber(result.self_recent_average, 1)) +
+    tile("Std Dev", formatNumber(result.self_stddev, 1)) +
+    tile("Matches", result.self_matches ?? "--") +
+    tile("Event Avg", formatNumber(result.event_average_score, 1)) +
+    `</div>`;
+  picklistSelfLabel.hidden = false;
+}
+
 function renderPicklistTable(teams) {
   picklistTableBody.innerHTML = "";
   teams.forEach((team) => {
@@ -458,6 +485,7 @@ async function buildPicklist() {
     });
 
     const teams = result.teams || [];
+    renderPicklistSelf(result);
     renderPicklistTable(teams);
     renderPicklistChart(teams);
     picklistStatus.textContent = `${teams.length} teams · ${result.strategy}`;
