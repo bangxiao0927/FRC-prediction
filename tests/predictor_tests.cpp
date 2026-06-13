@@ -8,6 +8,7 @@
 #include "../src/predictor.h"
 #include "../src/stats.h"
 #include "../src/picklist.h"
+#include "../src/opr.h"
 
 namespace {
 
@@ -171,6 +172,46 @@ int test_cutoff_excludes_target_and_later_matches() {
     return failures;
 }
 
+int test_cutoff_orders_by_schedule_across_comp_levels() {
+    // The cutoff must use schedule order (comp level, set, match number), not
+    // timestamps. A qualification match always precedes a playoff match even if
+    // its match_number is larger, and the target playoff match plus anything
+    // later (a final) must never leak into the pre-target stats.
+    auto make_match = [](const std::string& level, int set_number, int number,
+                         const std::string& red, int red_score,
+                         const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", level},
+            {"set_number", set_number},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(make_match("qm", 1, 70, "frcA", 100, "frcB", 50));
+    nlohmann::json target = make_match("sf", 1, 1, "frcA", 80, "frcC", 90);
+    matches.push_back(target);
+    matches.push_back(make_match("f", 1, 1, "frcA", 200, "frcD", 10));
+
+    std::map<std::string, TeamStats> stats =
+        compute_team_stats_before(matches, MatchFilter::QualificationPlusElimPlayed, target);
+
+    int failures = 0;
+    failures += expect_true(stats.count("frcA") == 1 && stats["frcA"].matches_played == 1,
+                            "the earlier qualification match must count even with a smaller level");
+    failures += expect_true(stats.count("frcA") == 1 && stats["frcA"].total_score == 100,
+                            "the target playoff match score must not leak into pre-target stats");
+    failures += expect_true(stats.count("frcC") == 0,
+                            "the target match's teams must not be counted from the target");
+    failures += expect_true(stats.count("frcD") == 0,
+                            "a later final must not be counted");
+    return failures;
+}
+
 int test_picklist_ranks_and_excludes() {
     auto qual_match = [](int number, const std::string& red, int red_score,
                          const std::string& blue, int blue_score) {
@@ -233,6 +274,183 @@ int test_picklist_ranks_and_excludes() {
     return failures;
 }
 
+int test_picklist_before_cutoff_uses_schedule_order() {
+    // Regression guard: the picklist cutoff must follow schedule order, not
+    // timestamps. The target match (and anything later) carries misleadingly
+    // small time fields, while the earlier matches carry larger ones. A
+    // timestamp-based cutoff would wrongly drop the real history and leak the
+    // target's inflated scores.
+    auto qual_match = [](int number, double time, const std::string& red, int red_score,
+                         const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"time", time},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(qual_match(1, 500.0, "frcSelf", 70, "frcCand", 50));
+    matches.push_back(qual_match(2, 600.0, "frcSelf", 75, "frcCand", 60));
+    // Target match has an earlier timestamp but a later schedule position; its
+    // huge scores must never enter the pre-target picklist.
+    nlohmann::json target = qual_match(3, 100.0, "frcSelf", 80, "frcCand", 1000);
+    matches.push_back(target);
+    matches.push_back(qual_match(4, 50.0, "frcSelf", 85, "frcCand", 2000));
+
+    PicklistWeights weights;
+    PicklistSummary picklist =
+        compute_picklist(matches, MatchFilter::QualificationOnly, target, {}, weights, 6, "frcSelf");
+
+    int failures = 0;
+    failures += expect_true(picklist.self_team_key == "frcSelf"
+                                && picklist.self_performance.matches_played == 2,
+                            "only matches scheduled before the target should anchor self performance");
+    failures += expect_true(almost_equal(picklist.self_performance.average_score, 72.5),
+                            "self average must exclude the target match score");
+
+    const PicklistEntry* cand = nullptr;
+    for (const auto& entry : picklist.entries) {
+        if (entry.team_key == "frcCand") {
+            cand = &entry;
+        }
+    }
+    failures += expect_true(cand != nullptr && cand->matches == 2,
+                            "the candidate should only carry its two pre-target matches");
+    failures += expect_true(cand != nullptr && almost_equal(cand->average_score, 55.0),
+                            "the target and later spikes must not leak into the candidate average");
+    return failures;
+}
+
+int test_opr_recovers_individual_contributions() {
+    // Each team has a fixed true contribution and every alliance score is the
+    // exact sum of its members'. With a consistent, well-mixed schedule the OPR
+    // solve should recover those individual contributions closely, which the
+    // legacy "sum of alliance averages" model cannot do.
+    auto two_v_two = [](int number, const std::string& r1, const std::string& r2, int red_score,
+                        const std::string& b1, const std::string& b2, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {r1, r2}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {b1, b2}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    // True contributions: A=50, B=30, C=20, D=10.
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(two_v_two(1, "frcA", "frcB", 80, "frcC", "frcD", 30));
+    matches.push_back(two_v_two(2, "frcA", "frcC", 70, "frcB", "frcD", 40));
+    matches.push_back(two_v_two(3, "frcA", "frcD", 60, "frcB", "frcC", 50));
+
+    std::map<std::string, double> oprs =
+        compute_team_oprs(matches, MatchFilter::QualificationOnly);
+
+    int failures = 0;
+    failures += expect_true(oprs.size() == 4, "every team that played should get an OPR");
+    // Ordering must follow the true contributions even after ridge shrink.
+    failures += expect_true(oprs["frcA"] > oprs["frcB"] && oprs["frcB"] > oprs["frcC"]
+                                && oprs["frcC"] > oprs["frcD"],
+                            "OPR ordering should match the true contribution ordering");
+    // The point of OPR: it isolates a team's own contribution. For every team it
+    // must be closer to the truth than the legacy proxy (the team's average
+    // alliance score), which double-counts its partners.
+    const std::map<std::string, double> truth = {
+        {"frcA", 50.0}, {"frcB", 30.0}, {"frcC", 20.0}, {"frcD", 10.0}};
+    const std::map<std::string, double> legacy_alliance_average = {
+        {"frcA", 70.0}, {"frcB", 170.0 / 3.0}, {"frcC", 50.0}, {"frcD", 130.0 / 3.0}};
+    for (const auto& entry : truth) {
+        const std::string& team = entry.first;
+        const double opr_error = std::abs(oprs[team] - entry.second);
+        const double legacy_error = std::abs(legacy_alliance_average.at(team) - entry.second);
+        failures += expect_true(opr_error < legacy_error,
+                                "OPR must beat the legacy alliance average at recovering " + team);
+        failures += expect_true(opr_error < 10.0,
+                                "OPR should land within a reasonable margin of the true contribution");
+    }
+    return failures;
+}
+
+int test_opr_cutoff_excludes_target_and_later_matches() {
+    auto qual_match = [](int number, const std::string& red, int red_score,
+                         const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(qual_match(1, "frcA", 100, "frcB", 50));
+    nlohmann::json target = qual_match(2, "frcA", 80, "frcC", 90);
+    matches.push_back(target);
+    matches.push_back(qual_match(3, "frcA", 200, "frcD", 10));
+
+    std::map<std::string, double> oprs =
+        compute_team_oprs_before(matches, MatchFilter::QualificationOnly, target);
+
+    int failures = 0;
+    failures += expect_true(oprs.count("frcA") == 1 && oprs.count("frcB") == 1,
+                            "teams from matches before the target should be rated");
+    failures += expect_true(oprs.count("frcC") == 0,
+                            "the target match's teams must not leak into pre-target OPR");
+    failures += expect_true(oprs.count("frcD") == 0,
+                            "later matches must not leak into pre-target OPR");
+    return failures;
+}
+
+int test_predict_match_uses_opr_when_supplied() {
+    nlohmann::json match = {
+        {"alliances", {
+            {"red", {{"team_keys", {"frc1", "frc2", "frc3"}}}},
+            {"blue", {{"team_keys", {"frc4", "frc5", "frc6"}}}}
+        }}
+    };
+
+    // Full data so confidence is 1.0 and the adjusted estimate equals the raw
+    // OPR sum (no shrink), making the arithmetic exact and easy to assert.
+    std::map<std::string, TeamStats> stats = {
+        {"frc1", TeamStats{6, 360, 60.0}},
+        {"frc2", TeamStats{6, 360, 60.0}},
+        {"frc3", TeamStats{6, 360, 60.0}},
+        {"frc4", TeamStats{6, 360, 60.0}},
+        {"frc5", TeamStats{6, 360, 60.0}},
+        {"frc6", TeamStats{6, 360, 60.0}}
+    };
+    std::map<std::string, double> oprs = {
+        {"frc1", 30.0}, {"frc2", 20.0}, {"frc3", 10.0},
+        {"frc4", 15.0}, {"frc5", 15.0}, {"frc6", 10.0}
+    };
+
+    MatchPrediction prediction = predict_match(match, stats, 1, 30.0, 1.0, oprs);
+
+    int failures = 0;
+    failures += expect_true(prediction.uses_opr,
+                            "supplying OPRs should switch the model into OPR mode");
+    failures += expect_true(almost_equal(prediction.red_score_total_estimate, 60.0),
+                            "red alliance estimate should be the sum of member OPRs");
+    failures += expect_true(almost_equal(prediction.blue_score_total_estimate, 40.0),
+                            "blue alliance estimate should be the sum of member OPRs");
+    failures += expect_true(almost_equal(prediction.adjusted_score_diff_estimate, 20.0),
+                            "with full confidence the adjusted diff equals the OPR margin");
+    failures += expect_true(prediction.red_win_probability > 0.5,
+                            "the stronger OPR alliance should be favored");
+    return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -241,6 +459,11 @@ int main() {
     failures += test_event_adjustment_changes_prediction();
     failures += test_total_uses_scheduled_team_count();
     failures += test_cutoff_excludes_target_and_later_matches();
+    failures += test_cutoff_orders_by_schedule_across_comp_levels();
     failures += test_picklist_ranks_and_excludes();
+    failures += test_picklist_before_cutoff_uses_schedule_order();
+    failures += test_opr_recovers_individual_contributions();
+    failures += test_opr_cutoff_excludes_target_and_later_matches();
+    failures += test_predict_match_uses_opr_when_supplied();
     return failures;
 }

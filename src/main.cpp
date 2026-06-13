@@ -15,6 +15,7 @@
 
 #include "config.h"
 #include "predictor.h"
+#include "opr.h"
 #include "picklist.h"
 #include "tba_client.h"
 #include "stats.h"
@@ -507,12 +508,18 @@ int main(int argc, char** argv) {
                       << "; prediction will be a coin flip.\n";
         }
 
+        // OPR uses the same cutoff so the contribution model never sees the
+        // match it is predicting or anything later.
+        std::map<std::string, double> oprs = config.use_opr
+            ? compute_team_oprs_before(matches, filter, match)
+            : std::map<std::string, double>{};
         MatchPrediction prediction = predict_match(
             match,
             stats,
             config.confidence_match_count,
             config.score_diff_scale,
-            config.sigmoid_scale);
+            config.sigmoid_scale,
+            oprs);
         std::string match_key = match.value("key", "");
         const std::string resolved_output_path = output_path.empty()
             ? default_prediction_output_path(event_key, match_key)
@@ -521,6 +528,7 @@ int main(int argc, char** argv) {
             nlohmann::json output = {
                 {"match_key", match_key},
                 {"model_version", config.model_version},
+                {"model_uses_opr", prediction.uses_opr},
                 {"red_teams", prediction.red_teams},
                 {"blue_teams", prediction.blue_teams},
                 {"red_team_count", prediction.red_team_count},
@@ -557,6 +565,7 @@ int main(int argc, char** argv) {
             std::ostringstream output;
             output << "Prediction for " << match_key << ":\n";
             output << "  model_version=" << config.model_version << "\n";
+            output << "  model_uses_opr=" << (prediction.uses_opr ? "true" : "false") << "\n";
             output << "  red_teams=";
             for (size_t i = 0; i < prediction.red_teams.size(); ++i) {
                 if (i > 0) {
@@ -652,12 +661,16 @@ int main(int argc, char** argv) {
             std::map<std::string, TeamStats> stats =
                 compute_team_stats_before(matches, match_filter, match);
 
+            std::map<std::string, double> oprs = config.use_opr
+                ? compute_team_oprs_before(matches, match_filter, match)
+                : std::map<std::string, double>{};
             MatchPrediction prediction = predict_match(
                 match,
                 stats,
                 config.confidence_match_count,
                 config.score_diff_scale,
-                config.sigmoid_scale);
+                config.sigmoid_scale,
+                oprs);
             double predicted_diff = prediction.adjusted_score_diff_estimate;
             double actual_diff = static_cast<double>(red_score - blue_score);
             total_abs_error += std::abs(actual_diff - predicted_diff);
@@ -686,7 +699,8 @@ int main(int argc, char** argv) {
                 {"phase", phase_arg.empty() ? "all" : phase_arg},
                 {"matches", evaluated},
                 {"mae", mae},
-                {"winner_accuracy", accuracy}
+                {"winner_accuracy", accuracy},
+                {"model_uses_opr", config.use_opr}
             };
             if (!write_text_file(eval_json_path, output.dump(2))) {
                 std::cerr << "Failed to write evaluation JSON to " << eval_json_path << ".\n";
@@ -721,6 +735,7 @@ int main(int argc, char** argv) {
             std::cout << "  matches=" << evaluated << "\n";
             std::cout << "  mae=" << mae << "\n";
             std::cout << "  winner_accuracy=" << accuracy << "\n";
+            std::cout << "  model_uses_opr=" << (config.use_opr ? "true" : "false") << "\n";
         }
     }
 

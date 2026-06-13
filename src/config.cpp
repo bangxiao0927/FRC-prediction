@@ -36,6 +36,7 @@ Config load_from_file(const std::string& path) {
     config.score_diff_scale = json.value("score_diff_scale", 30.0);
     config.sigmoid_scale = json.value("sigmoid_scale", 1.0);
     config.model_version = json.value("model_version", "baseline-v1");
+    config.use_opr = json.value("use_opr", true);
     return config;
 }
 
