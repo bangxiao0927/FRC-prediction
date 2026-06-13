@@ -252,6 +252,15 @@ The dashboard provides:
 - A **Picklist** section: pick a strategy (balanced/offense/consistency), exclude
   already-picked teams, and build a ranked table + chart. It reuses the Event and
   Match fields (Match acts as an "as of" cutoff).
+- A **History** toggle next to Run: blend cross-event prior-season form into the
+  prediction, optionally scoped to specific robots via the **History teams** box
+  (empty = all). A badge on the prediction shows when history is applied.
+- A **Team Roles** section: per-team offense / auto / teleop / endgame and a
+  defensive DPR, with a primary-role badge (honors the Match field as an "as of"
+  cutoff and a phase filter).
+- An **Alliance Evaluator**: enter a hand-picked lineup (and an optional opponent)
+  to get OPR-based predicted + synergy scores, phase totals, best defender, and a
+  what-if matchup win probability.
 
 Examples:
 

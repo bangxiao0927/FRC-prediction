@@ -27,6 +27,14 @@
       </label>
       <button id="runPrediction">Run</button>
       <button id="refresh" type="button">Refresh files</button>
+      <label class="history-toggle">
+        <input id="useHistory" type="checkbox" />
+        History
+      </label>
+      <label>
+        History teams
+        <input id="historyTeams" type="text" placeholder="all · or frc254, frc1678" autocomplete="off" />
+      </label>
       <label class="auto-refresh">
         <input id="autoRefresh" type="checkbox" />
         Auto
@@ -49,6 +57,7 @@
       <div class="prediction-head">
         <h2>Prediction</h2>
         <span id="matchLabel" class="match-tag">--</span>
+        <span id="historyBadge" class="history-badge" hidden></span>
       </div>
 
       <div class="winbar" role="img" aria-label="Win probability">
@@ -113,6 +122,58 @@
         </thead>
         <tbody></tbody>
       </table>
+    </section>
+
+    <section>
+      <h2>Team Roles</h2>
+      <div class="controls" aria-label="Roles controls">
+        <label>
+          Phase
+          <select id="rolesPhase">
+            <option value="all" selected>All</option>
+            <option value="qm">Qual</option>
+            <option value="elim">Elim</option>
+          </select>
+        </label>
+        <label>
+          Top
+          <input id="rolesTop" type="number" min="1" max="200" value="30" />
+        </label>
+        <button id="buildRoles" type="button">Compute roles</button>
+        <span id="rolesStatus" role="status"></span>
+      </div>
+      <p id="rolesNote" class="roles-note" hidden></p>
+      <table id="rolesTable">
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th>Role</th>
+            <th>Offense</th>
+            <th>Auto</th>
+            <th>Teleop</th>
+            <th>Endgame</th>
+            <th>Defense (DPR)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Alliance Evaluator</h2>
+      <div class="controls" aria-label="Alliance controls">
+        <label>
+          Alliance
+          <input id="allianceTeams" type="text" placeholder="frc254, frc1678, frc604" autocomplete="off" />
+        </label>
+        <label>
+          vs (optional)
+          <input id="allianceVs" type="text" placeholder="frc973, frc1323, frc8" autocomplete="off" />
+        </label>
+        <button id="evalAlliance" type="button">Evaluate</button>
+        <span id="allianceStatus" role="status"></span>
+      </div>
+      <div id="allianceResult" class="alliance-result" hidden></div>
     </section>
 
     <section>
