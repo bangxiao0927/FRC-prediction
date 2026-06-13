@@ -399,15 +399,23 @@ function renderPicklistSelf(result) {
     picklistSelfLabel.hidden = true;
     return;
   }
-  // Make it explicit that the candidate list below excludes your own team and
-  // is scored relative to your team's performance.
+  // A prominent "pad" so the requesting team's status reads clearly and it is
+  // obvious the candidate list below is scored relative to (and excludes) it.
+  const tile = (label, value) =>
+    `<div class="self-tile"><span class="self-tile-value">${value}</span>` +
+    `<span class="self-tile-label">${label}</span></div>`;
   picklistSelfLabel.innerHTML =
-    `<strong>Your team ${selfTeam}</strong> (excluded from picks)` +
-    `<span class="chip">Avg ${formatNumber(result.self_average_score, 1)}</span>` +
-    `<span class="chip">Recent ${formatNumber(result.self_recent_average, 1)}</span>` +
-    `<span class="chip">Std Dev ${formatNumber(result.self_stddev, 1)}</span>` +
-    `<span class="chip">Matches ${result.self_matches ?? "--"}</span>` +
-    `<span class="chip">Event Avg ${formatNumber(result.event_average_score, 1)}</span>`;
+    `<div class="self-pad-head">` +
+    `<div><span class="self-pad-eyebrow">Your Team</span>` +
+    `<span class="self-pad-team">${selfTeam}</span></div>` +
+    `<span class="self-pad-tag">Excluded from picks</span></div>` +
+    `<div class="self-tiles">` +
+    tile("Avg Score", formatNumber(result.self_average_score, 1)) +
+    tile("Recent Avg", formatNumber(result.self_recent_average, 1)) +
+    tile("Std Dev", formatNumber(result.self_stddev, 1)) +
+    tile("Matches", result.self_matches ?? "--") +
+    tile("Event Avg", formatNumber(result.event_average_score, 1)) +
+    `</div>`;
   picklistSelfLabel.hidden = false;
 }
 
