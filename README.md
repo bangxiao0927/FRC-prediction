@@ -183,15 +183,22 @@ By default a prediction only uses the current event's matches. Pass
 `--use-history` (or set `use_history: true` in `config.json`) to blend in each
 team's **prior-season form** from its other events that year:
 
-- For every team in the match, the CLI pulls its season matches and averages the
-  per-team score (alliance score / alliance size) from matches at *other* events
-  played strictly *before* this match — so there is no future-data leakage, and a
-  team's first event of the season simply has no history to add.
+- For every team in the match, the CLI pulls its season matches and computes the
+  team's **OPR at each *other* event** it played that year (restricted to matches
+  before this one), then averages those event OPRs weighted by matches played.
+  Running a real OPR per event deconvolves teammates, so the prior reflects the
+  robot's own contribution rather than a raw points total. (If no event OPR can be
+  derived it falls back to the simpler per-team score average.) Everything is
+  restricted to matches played strictly *before* this match, so there is no
+  future-data leakage, and a team's first event of the season has no history.
 - The historical prior is blended with the team's current-event OPR, weighted by
   how many current matches it has played: a team with `confidence_match_count`+
   matches is trusted entirely on current form, while a team with no current data
   falls back to its history. This sharpens early-event score estimates when the
   current sample is thin.
+- Use `--history-teams frc254,frc1678` to blend history for **only those robots**
+  (every other team keeps its pure current-event OPR). Passing `--history-teams`
+  also turns history on, so you don't need `--use-history` as well.
 
 Note: the win-probability confidence shrink still scales with the *current*-event
 sample, so very early win probabilities stay conservative even though the score

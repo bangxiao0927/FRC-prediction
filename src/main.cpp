@@ -112,7 +112,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--history-teams TEAMS] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -318,8 +318,103 @@ double event_start_time(const nlohmann::json& matches) {
     return earliest;
 }
 
+// Subset of an event's matches whose timestamp is strictly before `before`.
+// Matches without a usable time are dropped when a cutoff is in force, so a
+// partially-overlapping event never leaks matches at/after the cutoff.
+nlohmann::json matches_before_time(const nlohmann::json& matches, double before) {
+    if (!matches.is_array() || before <= 0.0) {
+        return matches;
+    }
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& match : matches) {
+        const double when = match_time_value(match);
+        if (when > 0.0 && when < before) {
+            out.push_back(match);
+        }
+    }
+    return out;
+}
+
+// How many of the given matches included `team` on either alliance.
+int count_team_matches(const nlohmann::json& matches, const std::string& team) {
+    int count = 0;
+    if (!matches.is_array()) {
+        return count;
+    }
+    for (const auto& match : matches) {
+        const std::vector<std::string> teams = match_team_keys(match);
+        if (std::find(teams.begin(), teams.end(), team) != teams.end()) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+// A team's cross-event historical prior: the team's OPR at each OTHER event it
+// played this season (restricted to matches before the cutoff), averaged and
+// weighted by how many matches it played at each event. Computing a real OPR per
+// event deconvolves teammates, so the prior is far more meaningful than a raw
+// points-per-match average. Falls back to the score-based form (same
+// points-per-team scale) when no event OPR can be derived. Returns false when the
+// team has no usable prior at all.
+bool team_history_prior(TbaClient& client,
+                        const nlohmann::json& season,
+                        const std::string& team,
+                        const std::string& event_key,
+                        double before,
+                        double& prior_out) {
+    if (!season.is_array()) {
+        return false;
+    }
+    // Distinct other events where the team has at least one match before cutoff.
+    std::set<std::string> other_events;
+    for (const auto& match : season) {
+        const std::string ev = match.value("event_key", "");
+        if (ev.empty() || ev == event_key) {
+            continue;
+        }
+        const double when = match_time_value(match);
+        if (when > 0.0 && when < before) {
+            other_events.insert(ev);
+        }
+    }
+
+    double weighted_sum = 0.0;
+    double weight_total = 0.0;
+    for (const auto& ev : other_events) {
+        const nlohmann::json full = client.get_event_matches(ev);
+        const nlohmann::json prior_matches = matches_before_time(full, before);
+        const std::map<std::string, double> oprs =
+            compute_team_oprs(prior_matches, MatchFilter::AllPlayed);
+        const auto it = oprs.find(team);
+        if (it == oprs.end()) {
+            continue;
+        }
+        const int weight = count_team_matches(prior_matches, team);
+        if (weight <= 0) {
+            continue;
+        }
+        weighted_sum += it->second * static_cast<double>(weight);
+        weight_total += static_cast<double>(weight);
+    }
+    if (weight_total > 0.0) {
+        prior_out = weighted_sum / weight_total;
+        return true;
+    }
+
+    // Fallback: the cruder per-team score form (still points-per-team scale).
+    const TeamForm form = compute_team_form(season, team, event_key, before);
+    if (form.matches > 0) {
+        prior_out = form.per_team_score;
+        return true;
+    }
+    return false;
+}
+
 // Blend current-event OPR with each match team's prior-season form. Falls back to
 // the unblended OPRs when the year can't be derived or no history is available.
+// When `history_teams` is non-empty, only those teams get a historical prior;
+// every other team keeps its pure current-event OPR.
 std::map<std::string, double> blended_oprs_with_history(
     TbaClient& client,
     const nlohmann::json& match,
@@ -327,7 +422,8 @@ std::map<std::string, double> blended_oprs_with_history(
     const std::string& event_key,
     const std::map<std::string, double>& current_oprs,
     const std::map<std::string, TeamStats>& stats,
-    int confidence_match_count) {
+    int confidence_match_count,
+    const std::set<std::string>& history_teams) {
     int year = 0;
     if (event_key.size() >= 4) {
         try {
@@ -352,10 +448,14 @@ std::map<std::string, double> blended_oprs_with_history(
     }
     std::map<std::string, double> priors;
     for (const auto& team : match_team_keys(match)) {
-        nlohmann::json season = client.get_team_matches_year(team, year);
-        TeamForm form = compute_team_form(season, team, event_key, before);
-        if (form.matches > 0) {
-            priors[team] = form.per_team_score;
+        // Optional filter: only blend history for the requested robots.
+        if (!history_teams.empty() && history_teams.find(team) == history_teams.end()) {
+            continue;
+        }
+        const nlohmann::json season = client.get_team_matches_year(team, year);
+        double prior = 0.0;
+        if (team_history_prior(client, season, team, event_key, before, prior)) {
+            priors[team] = prior;
         }
     }
     if (priors.empty()) {
@@ -407,7 +507,11 @@ int main(int argc, char** argv) {
     const std::string alliance_arg = get_arg_value(args, "--alliance");
     const std::string alliance_vs_arg = get_arg_value(args, "--vs");
     const bool show_alliance = !alliance_arg.empty();
-    const bool use_history = config.use_history || has_flag(args, "--use-history");
+    // --history-teams restricts the historical blend to specific robots; passing
+    // it also turns history on for convenience.
+    const std::set<std::string> history_teams = parse_team_set(get_arg_value(args, "--history-teams"));
+    const bool use_history =
+        config.use_history || has_flag(args, "--use-history") || !history_teams.empty();
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
@@ -853,7 +957,7 @@ int main(int argc, char** argv) {
         // Optionally blend in each team's prior-season form (cross-event history).
         if (config.use_opr && use_history) {
             oprs = blended_oprs_with_history(client, match, matches, event_key, oprs, stats,
-                                             config.confidence_match_count);
+                                             config.confidence_match_count, history_teams);
         }
         MatchPrediction prediction = predict_match(
             match,
@@ -872,6 +976,7 @@ int main(int argc, char** argv) {
                 {"model_version", config.model_version},
                 {"model_uses_opr", prediction.uses_opr},
                 {"model_uses_history", config.use_opr && use_history},
+                {"history_teams", std::vector<std::string>(history_teams.begin(), history_teams.end())},
                 {"red_teams", prediction.red_teams},
                 {"blue_teams", prediction.blue_teams},
                 {"red_team_count", prediction.red_team_count},
