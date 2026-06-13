@@ -520,6 +520,53 @@ int test_roles_decompose_phases() {
     return failures;
 }
 
+int test_roles_unknown_endgame_key_is_flagged() {
+    // A season whose score_breakdown has auto/teleop but no endgame key we know.
+    // teleopPoints here is the team's full teleop output (endgame not separable).
+    auto match = [](int number,
+                    const std::string& r1, const std::string& r2, int r_auto, int r_teleop,
+                    const std::string& b1, const std::string& b2, int b_auto, int b_teleop) {
+        auto breakdown = [](int a, int t) {
+            return nlohmann::json{{"autoPoints", a}, {"teleopPoints", t}};
+        };
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {r1, r2}}, {"score", r_auto + r_teleop}}},
+                {"blue", {{"team_keys", {b1, b2}}, {"score", b_auto + b_teleop}}}
+            }},
+            {"score_breakdown", {
+                {"red", breakdown(r_auto, r_teleop)},
+                {"blue", breakdown(b_auto, b_teleop)}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(match(1, "frcA", "frcB", 12, 30, "frcC", "frcD", 10, 28));
+    matches.push_back(match(2, "frcA", "frcC", 14, 26, "frcB", "frcD", 8, 24));
+    matches.push_back(match(3, "frcA", "frcD", 14, 26, "frcB", "frcC", 8, 24));
+
+    std::map<std::string, TeamRole> roles =
+        compute_team_roles(matches, MatchFilter::QualificationOnly);
+
+    int failures = 0;
+    failures += expect_true(roles["frcA"].has_phase_data,
+                            "auto/teleop should still be available from score_breakdown");
+    failures += expect_true(!roles["frcA"].has_endgame_data,
+                            "an unknown season endgame key should flag endgame as unavailable");
+    failures += expect_true(almost_equal(roles["frcA"].endgame_phase, 0.0),
+                            "endgame should be 0 when the season key is unknown");
+    // No team should be labeled endgame purely from a 0 endgame phase.
+    for (const auto& entry : roles) {
+        failures += expect_true(entry.second.primary != "endgame",
+                                "endgame label must not be assigned without endgame data");
+    }
+    return failures;
+}
+
 int test_roles_defense_rating() {
     // 1v1 matches: frcWall holds opponents to single digits; frcOpen lets them
     // score ~90. Defense is a DPR (opponent score share), so frcWall must rate
@@ -608,6 +655,7 @@ int main() {
     failures += test_opr_cutoff_excludes_target_and_later_matches();
     failures += test_predict_match_uses_opr_when_supplied();
     failures += test_roles_decompose_phases();
+    failures += test_roles_unknown_endgame_key_is_flagged();
     failures += test_roles_defense_rating();
     failures += test_roles_cutoff_no_leakage();
     return failures;
