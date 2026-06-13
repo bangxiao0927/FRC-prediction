@@ -161,6 +161,22 @@ Each team is tagged a `primary` role (`offense`, `auto`, `endgame`, or
 are `0` and roles fall back to offense/defense. Respects `--phase`, `--before`,
 `--top`, and `--json`.
 
+### Alliance Evaluation (`--alliance` / `--vs`)
+
+`--alliance frcA,frcB,frcC` evaluates a hand-picked lineup as a what-if (using
+every played match at the event):
+
+- **predicted_score**: the OPR-based alliance estimate (sum of member OPRs).
+- **auto / teleop / endgame / best_defense**: the lineup's combined role profile.
+- **synergy_score**: the predicted score plus a transparent complementarity
+  adjustment — a bonus for covering more distinct roles and carrying a defender,
+  and a penalty for stacking redundant endgame specialists. The OPR estimate
+  stays the headline; synergy only breaks ties between similar lineups.
+
+Add `--vs frcD,frcE,frcF` to simulate a matchup: both lineups are evaluated and
+the match predictor returns a win probability and estimated margin. Works with
+`--json` for scripting.
+
 ### 3. Build
 
 ```bash
@@ -221,6 +237,8 @@ Examples:
 ./build/frc_prediction --event 2024casj --stats --top 10 --stats-csv data/stats.csv
 ./build/frc_prediction --event 2024casj --roles --top 10
 ./build/frc_prediction --event 2024casj --roles --json --before qm40
+./build/frc_prediction --event 2024casj --alliance frc1678,frc604,frc841
+./build/frc_prediction --event 2024casj --alliance frc1678,frc604,frc841 --vs frc581,frc987,frc100
 ./build/frc_prediction --event 2024casj --predict 2024casj_qm1
 ./build/frc_prediction --event 2024casj --predict-upcoming
 ./build/frc_prediction --event 2024casj --predict-upcoming --json

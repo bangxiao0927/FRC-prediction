@@ -17,6 +17,7 @@
 #include "predictor.h"
 #include "opr.h"
 #include "roles.h"
+#include "synergy.h"
 #include "picklist.h"
 #include "tba_client.h"
 #include "stats.h"
@@ -110,7 +111,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -230,6 +231,29 @@ std::set<std::string> parse_team_set(const std::string& csv) {
     return teams;
 }
 
+// Like parse_team_set but preserves input order and duplicates, for an alliance
+// lineup where position and exact membership matter.
+std::vector<std::string> parse_team_list(const std::string& csv) {
+    std::vector<std::string> teams;
+    std::stringstream stream(csv);
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        const size_t start = token.find_first_not_of(" \t");
+        const size_t end = token.find_last_not_of(" \t");
+        if (start == std::string::npos) {
+            continue;
+        }
+        std::string key = token.substr(start, end - start + 1);
+        std::transform(key.begin(), key.end(), key.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (key.rfind("frc", 0) != 0) {
+            key = "frc" + key;
+        }
+        teams.push_back(key);
+    }
+    return teams;
+}
+
 std::string normalize_team_key(const std::string& raw) {
     std::string key = raw;
     std::transform(key.begin(), key.end(), key.begin(),
@@ -280,10 +304,14 @@ int main(int argc, char** argv) {
     const std::string strategy_arg = get_arg_value(args, "--strategy");
     const std::string exclude_arg = get_arg_value(args, "--exclude");
     const std::string picklist_csv_path = get_arg_value(args, "--picklist-csv");
+    const std::string alliance_arg = get_arg_value(args, "--alliance");
+    const std::string alliance_vs_arg = get_arg_value(args, "--vs");
+    const bool show_alliance = !alliance_arg.empty();
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
-        && !show_roles && predict_match_key.empty() && !predict_upcoming && !evaluate_model && !show_picklist) {
+        && !show_roles && predict_match_key.empty() && !predict_upcoming && !evaluate_model && !show_picklist
+        && !show_alliance) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -473,6 +501,112 @@ int main(int argc, char** argv) {
             }
             if (!ordered.empty() && !ordered.front().second.has_phase_data) {
                 std::cout << "  (note: no score_breakdown available; phase ratings are 0)\n";
+            }
+        }
+    }
+
+    if (show_alliance) {
+        nlohmann::json matches = client.get_event_matches(event_key);
+        if (matches.empty()) {
+            std::cerr << "Failed to fetch event matches for " << event_key << ".\n";
+            return 1;
+        }
+
+        // A what-if lineup is not tied to a scheduled match, so it draws on every
+        // played match at the event.
+        const std::map<std::string, double> oprs =
+            compute_team_oprs(matches, MatchFilter::AllPlayed);
+        const std::map<std::string, TeamRole> roles =
+            compute_team_roles(matches, MatchFilter::AllPlayed);
+        const std::map<std::string, TeamStats> stats =
+            compute_team_stats(matches, MatchFilter::AllPlayed);
+        double opr_total = 0.0;
+        for (const auto& entry : oprs) {
+            opr_total += entry.second;
+        }
+        const double baseline_opr =
+            oprs.empty() ? 0.0 : opr_total / static_cast<double>(oprs.size());
+
+        const std::vector<std::string> alliance = parse_team_list(alliance_arg);
+        if (alliance.empty()) {
+            std::cerr << "--alliance needs at least one team key (e.g. frc254,frc1678,frc604).\n";
+            return 1;
+        }
+        const AllianceEvaluation red_eval =
+            evaluate_alliance(alliance, oprs, roles, baseline_opr);
+
+        const std::vector<std::string> opponent = parse_team_list(alliance_vs_arg);
+        const bool has_vs = !opponent.empty();
+        AllianceEvaluation blue_eval;
+        MatchPrediction matchup;
+        if (has_vs) {
+            blue_eval = evaluate_alliance(opponent, oprs, roles, baseline_opr);
+            // Reuse the match predictor by synthesizing a red-vs-blue match.
+            nlohmann::json synthetic = {
+                {"alliances", {
+                    {"red", {{"team_keys", alliance}}},
+                    {"blue", {{"team_keys", opponent}}}
+                }}
+            };
+            matchup = predict_match(synthetic, stats, config.confidence_match_count,
+                                    config.score_diff_scale, config.sigmoid_scale,
+                                    config.use_opr ? oprs : std::map<std::string, double>{});
+        }
+
+        auto eval_to_json = [](const AllianceEvaluation& e) {
+            return nlohmann::json{
+                {"teams", e.teams},
+                {"predicted_score", e.predicted_score},
+                {"synergy_score", e.synergy_score},
+                {"auto", e.auto_total},
+                {"teleop", e.teleop_total},
+                {"endgame", e.endgame_total},
+                {"best_defense", e.best_defense},
+                {"role_diversity", e.role_diversity},
+                {"has_defender", e.has_defender},
+                {"endgame_specialists", e.endgame_specialists},
+                {"has_phase_data", e.has_phase_data},
+                {"note", e.note}
+            };
+        };
+
+        if (output_json) {
+            nlohmann::json output;
+            output["event_key"] = event_key;
+            output["alliance"] = eval_to_json(red_eval);
+            if (has_vs) {
+                output["opponent"] = eval_to_json(blue_eval);
+                output["red_win_probability"] = matchup.red_win_probability;
+                output["blue_win_probability"] = matchup.blue_win_probability;
+                output["adjusted_score_diff"] = matchup.adjusted_score_diff_estimate;
+            }
+            std::cout << output.dump(2) << "\n";
+        } else {
+            auto print_eval = [](const std::string& label, const AllianceEvaluation& e) {
+                std::cout << label << " [";
+                for (size_t i = 0; i < e.teams.size(); ++i) {
+                    if (i > 0) {
+                        std::cout << ",";
+                    }
+                    std::cout << e.teams[i];
+                }
+                std::cout << "]\n";
+                std::cout << "  predicted_score=" << e.predicted_score
+                          << " synergy_score=" << e.synergy_score << "\n";
+                std::cout << "  auto=" << e.auto_total
+                          << " teleop=" << e.teleop_total
+                          << " endgame=" << e.endgame_total
+                          << " best_defense=" << e.best_defense << "\n";
+                std::cout << "  roles=" << e.role_diversity
+                          << " (" << e.note << ")\n";
+            };
+            std::cout << "Alliance Evaluation (" << event_key << "):\n";
+            print_eval("Alliance", red_eval);
+            if (has_vs) {
+                print_eval("Opponent", blue_eval);
+                std::cout << "Matchup: red_win_prob=" << matchup.red_win_probability
+                          << " blue_win_prob=" << matchup.blue_win_probability
+                          << " adj_diff=" << matchup.adjusted_score_diff_estimate << "\n";
             }
         }
     }

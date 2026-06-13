@@ -10,6 +10,7 @@
 #include "../src/picklist.h"
 #include "../src/opr.h"
 #include "../src/roles.h"
+#include "../src/synergy.h"
 
 namespace {
 
@@ -593,6 +594,60 @@ int test_roles_cutoff_no_leakage() {
     return failures;
 }
 
+int test_synergy_predicted_score_and_imputation() {
+    const std::map<std::string, double> oprs = {{"frcA", 30.0}, {"frcB", 20.0}};
+    const std::map<std::string, TeamRole> roles;  // no role data -> diversity 0
+    // frcX is unknown, so it should be imputed with the baseline OPR.
+    AllianceEvaluation eval =
+        evaluate_alliance({"frcA", "frcX"}, oprs, roles, 20.0);
+
+    int failures = 0;
+    failures += expect_true(almost_equal(eval.predicted_score, 50.0),
+                            "predicted score should sum member OPRs and impute unknowns");
+    return failures;
+}
+
+int test_synergy_rewards_role_diversity() {
+    // Two alliances with the SAME raw OPR sum (60) but different composition: a
+    // complementary trio should out-synergize a single-role stack.
+    const std::map<std::string, double> oprs = {
+        {"frcOff", 30.0}, {"frcEnd", 20.0}, {"frcDef", 10.0},
+        {"frcE1", 30.0}, {"frcE2", 20.0}, {"frcE3", 10.0}};
+    std::map<std::string, TeamRole> roles;
+    auto role = [](const std::string& primary) {
+        TeamRole r;
+        r.primary = primary;
+        return r;
+    };
+    roles["frcOff"] = role("offense");
+    roles["frcEnd"] = role("endgame");
+    roles["frcDef"] = role("defense");
+    roles["frcE1"] = role("endgame");
+    roles["frcE2"] = role("endgame");
+    roles["frcE3"] = role("endgame");
+
+    AllianceEvaluation diverse =
+        evaluate_alliance({"frcOff", "frcEnd", "frcDef"}, oprs, roles, 20.0);
+    AllianceEvaluation stacked =
+        evaluate_alliance({"frcE1", "frcE2", "frcE3"}, oprs, roles, 20.0);
+
+    int failures = 0;
+    failures += expect_true(almost_equal(diverse.predicted_score, stacked.predicted_score),
+                            "both alliances should share the same raw OPR sum");
+    failures += expect_true(diverse.role_diversity == 3 && diverse.has_defender,
+                            "the diverse alliance should cover three roles and a defender");
+    // diversity bonus 3*(3-1)=6 plus defender 2 = +8 -> 68.
+    failures += expect_true(almost_equal(diverse.synergy_score, 68.0),
+                            "complementary alliance synergy should add diversity + defender bonuses");
+    // single-role stack: endgame_specialists=3 -> penalty 4*(3-1)=8 -> 52.
+    failures += expect_true(stacked.endgame_specialists == 3
+                                && almost_equal(stacked.synergy_score, 52.0),
+                            "stacking endgame specialists should be penalized");
+    failures += expect_true(diverse.synergy_score > stacked.synergy_score,
+                            "synergy should favor complementary lineups over redundant ones");
+    return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -610,5 +665,7 @@ int main() {
     failures += test_roles_decompose_phases();
     failures += test_roles_defense_rating();
     failures += test_roles_cutoff_no_leakage();
+    failures += test_synergy_predicted_score_and_imputation();
+    failures += test_synergy_rewards_role_diversity();
     return failures;
 }
