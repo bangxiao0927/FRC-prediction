@@ -177,6 +177,27 @@ Add `--vs frcD,frcE,frcF` to simulate a matchup: both lineups are evaluated and
 the match predictor returns a win probability and estimated margin. Works with
 `--json` for scripting.
 
+### Cross-event history (`--use-history`)
+
+By default a prediction only uses the current event's matches. Pass
+`--use-history` (or set `use_history: true` in `config.json`) to blend in each
+team's **prior-season form** from its other events that year:
+
+- For every team in the match, the CLI pulls its season matches and averages the
+  per-team score (alliance score / alliance size) from matches at *other* events
+  played strictly *before* this match — so there is no future-data leakage, and a
+  team's first event of the season simply has no history to add.
+- The historical prior is blended with the team's current-event OPR, weighted by
+  how many current matches it has played: a team with `confidence_match_count`+
+  matches is trusted entirely on current form, while a team with no current data
+  falls back to its history. This sharpens early-event score estimates when the
+  current sample is thin.
+
+Note: the win-probability confidence shrink still scales with the *current*-event
+sample, so very early win probabilities stay conservative even though the score
+estimate already reflects history. `--use-history` makes extra TBA calls per
+team (cached), so it is opt-in.
+
 ### 3. Build
 
 ```bash

@@ -11,6 +11,7 @@
 #include "../src/opr.h"
 #include "../src/roles.h"
 #include "../src/synergy.h"
+#include "../src/history.h"
 
 namespace {
 
@@ -648,6 +649,71 @@ int test_synergy_rewards_role_diversity() {
     return failures;
 }
 
+int test_history_form_excludes_current_event_and_future() {
+    auto season_match = [](const std::string& event, double time,
+                           const std::string& a, const std::string& b, int score) {
+        // The team of interest (a) shares a 2-team alliance, so per-team score is
+        // score / 2.
+        return nlohmann::json{
+            {"event_key", event},
+            {"time", time},
+            {"alliances", {
+                {"red", {{"team_keys", {a, b}}, {"score", score}}},
+                {"blue", {{"team_keys", {"frcX", "frcY"}}, {"score", 0}}}
+            }}
+        };
+    };
+
+    nlohmann::json season = nlohmann::json::array();
+    season.push_back(season_match("2024week1", 100.0, "frcMe", "frcP", 60));  // counts: 30
+    season.push_back(season_match("2024week2", 200.0, "frcMe", "frcQ", 80));  // counts: 40
+    season.push_back(season_match("2024casj", 300.0, "frcMe", "frcR", 200));  // current event: skip
+    season.push_back(season_match("2024week3", 400.0, "frcMe", "frcS", 999)); // after cutoff: skip
+
+    // Cutoff at time 350 excludes the future week3 match; current event excluded
+    // by key. Only week1 (30) and week2 (40) count -> mean 35.
+    TeamForm form = compute_team_form(season, "frcMe", "2024casj", 350.0);
+
+    int failures = 0;
+    failures += expect_true(form.matches == 2,
+                            "only prior, other-event matches should feed team form");
+    failures += expect_true(almost_equal(form.per_team_score, 35.0),
+                            "form should average per-team score and exclude current/future matches");
+    return failures;
+}
+
+int test_history_blend_weights_by_current_sample() {
+    const std::map<std::string, double> current = {{"frcFull", 40.0}, {"frcNew", 50.0}};
+    const std::map<std::string, double> history = {{"frcFull", 10.0}, {"frcNew", 20.0}};
+    std::map<std::string, TeamStats> stats;
+    stats["frcFull"] = TeamStats{6, 0, 0.0};  // plenty of current data -> trust current
+    stats["frcNew"] = TeamStats{0, 0, 0.0};   // no current data -> fall back to history
+
+    std::map<std::string, double> blended = blend_oprs(current, history, stats, 6);
+
+    int failures = 0;
+    failures += expect_true(almost_equal(blended["frcFull"], 40.0),
+                            "a team with full current data should keep its current OPR");
+    failures += expect_true(almost_equal(blended["frcNew"], 20.0),
+                            "a team with no current data should fall back to historical form");
+    return failures;
+}
+
+int test_history_blend_partial_sample_is_interpolated() {
+    const std::map<std::string, double> current = {{"frcT", 60.0}};
+    const std::map<std::string, double> history = {{"frcT", 20.0}};
+    std::map<std::string, TeamStats> stats;
+    stats["frcT"] = TeamStats{3, 0, 0.0};  // half of confidence_match_count=6
+
+    std::map<std::string, double> blended = blend_oprs(current, history, stats, 6);
+
+    int failures = 0;
+    // weight = 3/6 = 0.5 -> 0.5*60 + 0.5*20 = 40.
+    failures += expect_true(almost_equal(blended["frcT"], 40.0),
+                            "partial current data should interpolate between current and history");
+    return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -667,5 +733,8 @@ int main() {
     failures += test_roles_cutoff_no_leakage();
     failures += test_synergy_predicted_score_and_imputation();
     failures += test_synergy_rewards_role_diversity();
+    failures += test_history_form_excludes_current_event_and_future();
+    failures += test_history_blend_weights_by_current_sample();
+    failures += test_history_blend_partial_sample_is_interpolated();
     return failures;
 }

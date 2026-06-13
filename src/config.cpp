@@ -37,6 +37,7 @@ Config load_from_file(const std::string& path) {
     config.sigmoid_scale = json.value("sigmoid_scale", 1.0);
     config.model_version = json.value("model_version", "baseline-v1");
     config.use_opr = json.value("use_opr", true);
+    config.use_history = json.value("use_history", false);
     return config;
 }
 

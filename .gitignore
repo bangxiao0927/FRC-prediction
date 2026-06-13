@@ -12,6 +12,7 @@ config.json
 data/cache/
 data/prediction.json
 data/stats.csv
+data/predictions/
 data/raw/
 data/processed/
 

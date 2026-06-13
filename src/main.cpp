@@ -18,6 +18,7 @@
 #include "opr.h"
 #include "roles.h"
 #include "synergy.h"
+#include "history.h"
 #include "picklist.h"
 #include "tba_client.h"
 #include "stats.h"
@@ -111,7 +112,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -264,6 +265,77 @@ std::string normalize_team_key(const std::string& raw) {
     return key;
 }
 
+// Team keys participating in a match (both alliances), in red-then-blue order.
+std::vector<std::string> match_team_keys(const nlohmann::json& match) {
+    std::vector<std::string> teams;
+    if (!match.contains("alliances") || !match["alliances"].is_object()) {
+        return teams;
+    }
+    const nlohmann::json& alliances = match["alliances"];
+    for (const char* side : {"red", "blue"}) {
+        if (!alliances.contains(side) || !alliances[side].is_object()) {
+            continue;
+        }
+        const nlohmann::json& alliance = alliances[side];
+        if (!alliance.contains("team_keys") || !alliance["team_keys"].is_array()) {
+            continue;
+        }
+        for (const auto& key : alliance["team_keys"]) {
+            if (key.is_string()) {
+                teams.push_back(key.get<std::string>());
+            }
+        }
+    }
+    return teams;
+}
+
+// Best available timestamp for a match (scheduled or actual).
+double match_time_value(const nlohmann::json& match) {
+    for (const char* key : {"time", "actual_time", "predicted_time"}) {
+        const double when = match.value(key, 0.0);
+        if (when > 0.0) {
+            return when;
+        }
+    }
+    return 0.0;
+}
+
+// Blend current-event OPR with each match team's prior-season form. Falls back to
+// the unblended OPRs when the year can't be derived or no history is available.
+std::map<std::string, double> blended_oprs_with_history(
+    TbaClient& client,
+    const nlohmann::json& match,
+    const std::string& event_key,
+    const std::map<std::string, double>& current_oprs,
+    const std::map<std::string, TeamStats>& stats,
+    int confidence_match_count) {
+    int year = 0;
+    if (event_key.size() >= 4) {
+        try {
+            year = std::stoi(event_key.substr(0, 4));
+        } catch (...) {
+            year = 0;
+        }
+    }
+    if (year <= 0) {
+        return current_oprs;
+    }
+    // Only count history strictly before this match, so backtests stay honest.
+    const double before = match_time_value(match);
+    std::map<std::string, double> priors;
+    for (const auto& team : match_team_keys(match)) {
+        nlohmann::json season = client.get_team_matches_year(team, year);
+        TeamForm form = compute_team_form(season, team, event_key, before);
+        if (form.matches > 0) {
+            priors[team] = form.per_team_score;
+        }
+    }
+    if (priors.empty()) {
+        return current_oprs;
+    }
+    return blend_oprs(current_oprs, priors, stats, confidence_match_count);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -307,6 +379,7 @@ int main(int argc, char** argv) {
     const std::string alliance_arg = get_arg_value(args, "--alliance");
     const std::string alliance_vs_arg = get_arg_value(args, "--vs");
     const bool show_alliance = !alliance_arg.empty();
+    const bool use_history = config.use_history || has_flag(args, "--use-history");
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
@@ -723,6 +796,11 @@ int main(int argc, char** argv) {
         std::map<std::string, double> oprs = config.use_opr
             ? compute_team_oprs_before(matches, filter, match)
             : std::map<std::string, double>{};
+        // Optionally blend in each team's prior-season form (cross-event history).
+        if (config.use_opr && use_history) {
+            oprs = blended_oprs_with_history(client, match, event_key, oprs, stats,
+                                             config.confidence_match_count);
+        }
         MatchPrediction prediction = predict_match(
             match,
             stats,
@@ -739,6 +817,7 @@ int main(int argc, char** argv) {
                 {"match_key", match_key},
                 {"model_version", config.model_version},
                 {"model_uses_opr", prediction.uses_opr},
+                {"model_uses_history", config.use_opr && use_history},
                 {"red_teams", prediction.red_teams},
                 {"blue_teams", prediction.blue_teams},
                 {"red_team_count", prediction.red_team_count},
@@ -776,6 +855,7 @@ int main(int argc, char** argv) {
             output << "Prediction for " << match_key << ":\n";
             output << "  model_version=" << config.model_version << "\n";
             output << "  model_uses_opr=" << (prediction.uses_opr ? "true" : "false") << "\n";
+            output << "  model_uses_history=" << ((config.use_opr && use_history) ? "true" : "false") << "\n";
             output << "  red_teams=";
             for (size_t i = 0; i < prediction.red_teams.size(); ++i) {
                 if (i > 0) {
