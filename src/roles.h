@@ -19,6 +19,7 @@ struct TeamRole {
     double endgame_phase = 0.0;// endgame points contribution
     double defense = 0.0;      // DPR; lower is stronger defense
     bool has_phase_data = false; // false when score_breakdown was unavailable
+    bool has_endgame_data = false; // false when the season's endgame key is unknown
     std::string primary;       // "offense" | "auto" | "endgame" | "defense"
 };
 

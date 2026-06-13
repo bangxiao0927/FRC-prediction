@@ -44,6 +44,7 @@ AllianceEvaluation evaluate_alliance(const std::vector<std::string>& teams,
     }
 
     eval.role_diversity = static_cast<int>(primary_roles.size());
+    eval.has_defense_data = best_defense_set;
 
     // Complementarity adjustment: reward role coverage and a dedicated defender,
     // and dock redundant endgame specialists (only so many high-value climbs).

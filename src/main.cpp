@@ -300,11 +300,30 @@ double match_time_value(const nlohmann::json& match) {
     return 0.0;
 }
 
+// Earliest known timestamp across an event's matches, i.e. roughly when the event
+// started. Used as a leak-free history cutoff when the target match itself has no
+// usable time: anything another event played before this event began is safely
+// "prior", while matches at or after the event start are excluded.
+double event_start_time(const nlohmann::json& matches) {
+    double earliest = 0.0;
+    if (!matches.is_array()) {
+        return earliest;
+    }
+    for (const auto& match : matches) {
+        const double when = match_time_value(match);
+        if (when > 0.0 && (earliest == 0.0 || when < earliest)) {
+            earliest = when;
+        }
+    }
+    return earliest;
+}
+
 // Blend current-event OPR with each match team's prior-season form. Falls back to
 // the unblended OPRs when the year can't be derived or no history is available.
 std::map<std::string, double> blended_oprs_with_history(
     TbaClient& client,
     const nlohmann::json& match,
+    const nlohmann::json& event_matches,
     const std::string& event_key,
     const std::map<std::string, double>& current_oprs,
     const std::map<std::string, TeamStats>& stats,
@@ -321,7 +340,16 @@ std::map<std::string, double> blended_oprs_with_history(
         return current_oprs;
     }
     // Only count history strictly before this match, so backtests stay honest.
-    const double before = match_time_value(match);
+    // Upcoming matches often have no timestamp; fall back to the event's start so
+    // we never count another event that happened AFTER this one as "history".
+    double before = match_time_value(match);
+    if (before <= 0.0) {
+        before = event_start_time(event_matches);
+    }
+    if (before <= 0.0) {
+        // No usable cutoff at all: skip history rather than risk future leakage.
+        return current_oprs;
+    }
     std::map<std::string, double> priors;
     for (const auto& team : match_team_keys(match)) {
         nlohmann::json season = client.get_team_matches_year(team, year);
@@ -555,7 +583,8 @@ int main(int argc, char** argv) {
                     {"teleop", role.teleop_phase},
                     {"endgame", role.endgame_phase},
                     {"defense", role.defense},
-                    {"has_phase_data", role.has_phase_data}
+                    {"has_phase_data", role.has_phase_data},
+                    {"has_endgame_data", role.has_endgame_data}
                 });
             }
             std::cout << output.dump(2) << "\n";
@@ -574,6 +603,9 @@ int main(int argc, char** argv) {
             }
             if (!ordered.empty() && !ordered.front().second.has_phase_data) {
                 std::cout << "  (note: no score_breakdown available; phase ratings are 0)\n";
+            } else if (!ordered.empty() && !ordered.front().second.has_endgame_data) {
+                std::cout << "  (note: this season's endgame breakdown is unknown; "
+                             "endgame is 0 and teleop still includes endgame points)\n";
             }
         }
     }
@@ -593,12 +625,27 @@ int main(int argc, char** argv) {
             compute_team_roles(matches, MatchFilter::AllPlayed);
         const std::map<std::string, TeamStats> stats =
             compute_team_stats(matches, MatchFilter::AllPlayed);
-        double opr_total = 0.0;
-        for (const auto& entry : oprs) {
-            opr_total += entry.second;
+
+        // Score the alliance with the SAME model the match predictor uses, so the
+        // headline predicted_score and the --vs win probability never disagree.
+        // OPR mode: contribution is each team's OPR, baseline is the mean OPR.
+        // Legacy mode: contribution is each team's average alliance score, baseline
+        // is the event average (matching predict_match's legacy path).
+        std::map<std::string, double> contribution;
+        double baseline_score = 0.0;
+        if (config.use_opr) {
+            contribution = oprs;
+            double opr_total = 0.0;
+            for (const auto& entry : oprs) {
+                opr_total += entry.second;
+            }
+            baseline_score = oprs.empty() ? 0.0 : opr_total / static_cast<double>(oprs.size());
+        } else {
+            for (const auto& entry : stats) {
+                contribution[entry.first] = entry.second.average_score;
+            }
+            baseline_score = compute_event_average_score(stats);
         }
-        const double baseline_opr =
-            oprs.empty() ? 0.0 : opr_total / static_cast<double>(oprs.size());
 
         const std::vector<std::string> alliance = parse_team_list(alliance_arg);
         if (alliance.empty()) {
@@ -606,14 +653,14 @@ int main(int argc, char** argv) {
             return 1;
         }
         const AllianceEvaluation red_eval =
-            evaluate_alliance(alliance, oprs, roles, baseline_opr);
+            evaluate_alliance(alliance, contribution, roles, baseline_score);
 
         const std::vector<std::string> opponent = parse_team_list(alliance_vs_arg);
         const bool has_vs = !opponent.empty();
         AllianceEvaluation blue_eval;
         MatchPrediction matchup;
         if (has_vs) {
-            blue_eval = evaluate_alliance(opponent, oprs, roles, baseline_opr);
+            blue_eval = evaluate_alliance(opponent, contribution, roles, baseline_score);
             // Reuse the match predictor by synthesizing a red-vs-blue match.
             nlohmann::json synthetic = {
                 {"alliances", {
@@ -635,6 +682,7 @@ int main(int argc, char** argv) {
                 {"teleop", e.teleop_total},
                 {"endgame", e.endgame_total},
                 {"best_defense", e.best_defense},
+                {"has_defense_data", e.has_defense_data},
                 {"role_diversity", e.role_diversity},
                 {"has_defender", e.has_defender},
                 {"endgame_specialists", e.endgame_specialists},
@@ -669,7 +717,13 @@ int main(int argc, char** argv) {
                 std::cout << "  auto=" << e.auto_total
                           << " teleop=" << e.teleop_total
                           << " endgame=" << e.endgame_total
-                          << " best_defense=" << e.best_defense << "\n";
+                          << " best_defense=";
+                if (e.has_defense_data) {
+                    std::cout << e.best_defense;
+                } else {
+                    std::cout << "n/a";
+                }
+                std::cout << "\n";
                 std::cout << "  roles=" << e.role_diversity
                           << " (" << e.note << ")\n";
             };
@@ -798,7 +852,7 @@ int main(int argc, char** argv) {
             : std::map<std::string, double>{};
         // Optionally blend in each team's prior-season form (cross-event history).
         if (config.use_opr && use_history) {
-            oprs = blended_oprs_with_history(client, match, event_key, oprs, stats,
+            oprs = blended_oprs_with_history(client, match, matches, event_key, oprs, stats,
                                              config.confidence_match_count);
         }
         MatchPrediction prediction = predict_match(
