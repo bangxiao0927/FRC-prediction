@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -8,34 +9,38 @@
 
 #include "stats.h"
 
-// Relative weights for the picklist ranking. They are normalized internally, so
-// only their ratios matter.
 struct PicklistWeights {
-    double strength = 0.5;     // higher average score is better
-    double consistency = 0.3;  // lower score variance is better
-    double trend = 0.2;        // improving over the event is better
+    double strength = 0.5;
+    double consistency = 0.3;
+    double trend = 0.2;
+    double complement = 0.2;
+    double overlap = 0.1;
 };
 
-// One ranked team in the picklist.
+struct TeamPerformance {
+    int matches_played = 0;
+    double average_score = 0.0;
+    double std_dev = 0.0;
+    double recent_average = 0.0;
+};
+
 struct PicklistEntry {
     std::string team_key;
+    double picklist_score = 0.0;
+    double average_score = 0.0;
+    double stddev = 0.0;
+    double trend = 0.0;
     int matches = 0;
-    double average_score = 0.0;   // mean alliance score in the team's matches
-    double stddev = 0.0;          // spread of those scores (consistency proxy)
-    double trend = 0.0;           // recent-half mean minus early-half mean
-    double confidence = 0.0;      // matches / confidence_match_count, clamped 0..1
-    double picklist_score = 0.0;  // final 0..1 ranking score
+    double confidence = 0.0;
+    double complement = 0.0;
+    double overlap_penalty = 0.0;
 };
 
-// Ranks teams for alliance selection from match scores.
-//   filter        : which matches to consider (qualification, etc.)
-//   before_match  : if an object, only count matches scheduled before it
-//   exclude       : team keys to drop (already picked, your own team, ...)
-//   weights       : strength / consistency / trend mix
-//   confidence_match_count : matches needed for full confidence
-std::vector<PicklistEntry> compute_picklist(const nlohmann::json& matches_json,
-                                            MatchFilter filter,
-                                            const nlohmann::json& before_match,
-                                            const std::set<std::string>& exclude,
-                                            const PicklistWeights& weights,
-                                            int confidence_match_count);
+std::vector<PicklistEntry> compute_picklist(
+    const nlohmann::json& matches_json,
+    MatchFilter filter,
+    const nlohmann::json& before_match,
+    const std::set<std::string>& exclude,
+    const PicklistWeights& weights,
+    int confidence_match_count,
+    const std::string& my_team_key);

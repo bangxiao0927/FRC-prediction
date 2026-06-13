@@ -201,6 +201,7 @@ Examples:
 ./build/frc_prediction --event 2024casj --evaluate --phase qm
 ./build/frc_prediction --event 2024casj --evaluate --phase elim --eval-json data/eval.json
 ./build/frc_prediction --event 2024casj --evaluate --phase all --eval-csv data/eval.csv
+./build/frc_prediction --event 2024casj --picklist frc254 --top 24 --strategy balanced
 ./build/frc_prediction --event 2024casj --picklist --top 24
 ./build/frc_prediction --event 2024casj --picklist --strategy offense --exclude 1678,254
 ./build/frc_prediction --event 2024casj --picklist --before qm40 --json
@@ -238,3 +239,50 @@ Qualification predictions use qualification matches only; elimination prediction
 ## Contributing
 
 This project is early-stage. The first milestone is an MVP that can pull one event and provide explainable win probabilities for qualification matches, then expand to picklist and elimination predictions.
+
+## Picklist Strategy (How Ranking Is Computed)
+
+Picklist recommendations are built to maximize alliance fit rather than raw strength.
+
+### Inputs
+
+- Per-team average score from qualification-only matches (by default).
+- Standard deviation of match scores (consistency).
+- Recent trend from the last three completed matches.
+- Your team key (to compute complement/overlap).
+
+### Scores
+
+For each candidate team:
+
+```
+strength    = candidate_avg / event_avg
+consistency = 1 / (1 + stddev)
+trend       = (recent_avg - candidate_avg) / event_avg
+
+if my_avg >= event_avg:
+  complement = event_avg / (candidate_avg + event_avg)  # favors support roles
+else:
+  complement = candidate_avg / (candidate_avg + event_avg)  # favors scoring partners
+
+overlap_penalty = max(0, 1 - abs(candidate_avg - my_avg) / event_avg)
+
+picklist_score =
+  w_strength * strength
+  + w_consistency * consistency
+  + w_trend * trend
+  + w_complement * complement
+  - w_overlap * overlap_penalty
+```
+
+Strategy presets map to different weights:
+
+- **balanced**: 0.45 strength, 0.25 consistency, 0.10 trend, 0.25 complement, 0.15 overlap
+- **offense**: 0.60 strength, 0.15 consistency, 0.10 trend, 0.30 complement, 0.10 overlap
+- **consistency**: 0.30 strength, 0.50 consistency, 0.10 trend, 0.30 complement, 0.10 overlap
+
+### Usage
+
+```
+./build/frc_prediction --event 2024casj --picklist frc254 --top 24 --strategy balanced
+```

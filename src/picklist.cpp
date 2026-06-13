@@ -2,36 +2,43 @@
 
 #include <algorithm>
 #include <cmath>
-#include <map>
-#include <utility>
 
 namespace {
 
-bool is_qualification(const nlohmann::json& match) {
+double match_time_value(const nlohmann::json& match) {
+    double time = match.value("time", 0.0);
+    if (time > 0.0) {
+        return time;
+    }
+    return match.value("actual_time", 0.0);
+}
+
+bool is_qualification_match(const nlohmann::json& match) {
     return match.value("comp_level", "") == "qm";
 }
 
-bool is_elimination(const nlohmann::json& match) {
+bool is_elimination_match(const nlohmann::json& match) {
     const std::string level = match.value("comp_level", "");
     return level == "qf" || level == "sf" || level == "f";
 }
 
-bool passes_filter(const nlohmann::json& match, MatchFilter filter) {
-    switch (filter) {
-        case MatchFilter::QualificationOnly:
-            return is_qualification(match);
-        case MatchFilter::QualificationPlusElimPlayed:
-            return is_qualification(match) || is_elimination(match);
-        case MatchFilter::AllPlayed:
-        default:
-            return true;
+bool should_include_match(const nlohmann::json& match, MatchFilter filter) {
+    if (filter == MatchFilter::AllPlayed) {
+        return true;
     }
+    if (filter == MatchFilter::QualificationOnly) {
+        return is_qualification_match(match);
+    }
+    if (filter == MatchFilter::QualificationPlusElimPlayed) {
+        return is_qualification_match(match) || is_elimination_match(match);
+    }
+    return true;
 }
 
-void add_alliance(std::map<std::string, std::vector<int>>& scores,
-                  const nlohmann::json& alliance,
-                  int score,
-                  const std::set<std::string>& exclude) {
+void add_scores(std::map<std::string, std::vector<std::pair<double, int>>>& scores,
+                const nlohmann::json& alliance,
+                int score,
+                double time) {
     if (!alliance.contains("team_keys") || !alliance["team_keys"].is_array()) {
         return;
     }
@@ -39,163 +46,171 @@ void add_alliance(std::map<std::string, std::vector<int>>& scores,
         if (!team_key_value.is_string()) {
             continue;
         }
-        std::string team_key = team_key_value.get<std::string>();
-        if (exclude.count(team_key) > 0) {
-            continue;
-        }
-        scores[team_key].push_back(score);
+        scores[team_key_value.get<std::string>()].push_back({time, score});
     }
 }
 
-double mean_of(const std::vector<int>& values, size_t begin, size_t end) {
-    if (end <= begin) {
-        return 0.0;
-    }
-    double total = 0.0;
-    for (size_t i = begin; i < end; ++i) {
-        total += static_cast<double>(values[i]);
-    }
-    return total / static_cast<double>(end - begin);
-}
-
-double population_stddev(const std::vector<int>& values, double mean) {
+double compute_std_dev(const std::vector<std::pair<double, int>>& values, double mean) {
     if (values.size() < 2) {
         return 0.0;
     }
-    double sum_sq = 0.0;
-    for (int value : values) {
-        const double diff = static_cast<double>(value) - mean;
-        sum_sq += diff * diff;
+    double sum = 0.0;
+    for (const auto& entry : values) {
+        double delta = static_cast<double>(entry.second) - mean;
+        sum += delta * delta;
     }
-    return std::sqrt(sum_sq / static_cast<double>(values.size()));
+    return std::sqrt(sum / static_cast<double>(values.size() - 1));
 }
 
-// Min-max normalize to 0..1; if every value is equal, return 0.5 for all.
-std::vector<double> normalize(const std::vector<double>& values) {
-    std::vector<double> out(values.size(), 0.5);
+double compute_recent_average(std::vector<std::pair<double, int>> values, int count) {
     if (values.empty()) {
-        return out;
+        return 0.0;
     }
-    const double min_value = *std::min_element(values.begin(), values.end());
-    const double max_value = *std::max_element(values.begin(), values.end());
-    const double range = max_value - min_value;
-    if (range <= 0.0) {
-        return out;
+    std::sort(values.begin(), values.end(), [](const auto& left, const auto& right) {
+        return left.first < right.first;
+    });
+    int start = std::max(0, static_cast<int>(values.size()) - count);
+    double total = 0.0;
+    int used = 0;
+    for (size_t i = static_cast<size_t>(start); i < values.size(); ++i) {
+        total += static_cast<double>(values[i].second);
+        used += 1;
     }
-    for (size_t i = 0; i < values.size(); ++i) {
-        out[i] = (values[i] - min_value) / range;
+    if (used == 0) {
+        return 0.0;
     }
-    return out;
+    return total / static_cast<double>(used);
+}
+
+bool is_before_cutoff(const nlohmann::json& match, const nlohmann::json& cutoff) {
+    if (cutoff.is_null()) {
+        return true;
+    }
+    double cutoff_time = match_time_value(cutoff);
+    double match_time = match_time_value(match);
+    if (cutoff_time > 0.0 && match_time > 0.0) {
+        return match_time < cutoff_time;
+    }
+    return true;
 }
 
 }  // namespace
 
-std::vector<PicklistEntry> compute_picklist(const nlohmann::json& matches_json,
-                                            MatchFilter filter,
-                                            const nlohmann::json& before_match,
-                                            const std::set<std::string>& exclude,
-                                            const PicklistWeights& weights,
-                                            int confidence_match_count) {
-    std::vector<PicklistEntry> result;
+std::vector<PicklistEntry> compute_picklist(
+    const nlohmann::json& matches_json,
+    MatchFilter filter,
+    const nlohmann::json& before_match,
+    const std::set<std::string>& exclude,
+    const PicklistWeights& weights,
+    int confidence_match_count,
+    const std::string& my_team_key) {
     if (!matches_json.is_array()) {
-        return result;
+        return {};
     }
 
-    const bool has_cutoff = before_match.is_object();
-    const MatchOrderKey cutoff_key =
-        has_cutoff ? match_order_key(before_match) : MatchOrderKey{};
-
-    // Collect played, in-scope matches and order them chronologically so the
-    // trend (recent vs early) is meaningful.
-    std::vector<std::pair<MatchOrderKey, const nlohmann::json*>> ordered;
+    std::map<std::string, std::vector<std::pair<double, int>>> scores;
     for (const auto& match : matches_json) {
         if (!match.contains("alliances") || !match["alliances"].is_object()) {
+            continue;
+        }
+        if (!should_include_match(match, filter)) {
+            continue;
+        }
+        if (!is_before_cutoff(match, before_match)) {
             continue;
         }
         const nlohmann::json& alliances = match["alliances"];
         if (!alliances.contains("red") || !alliances.contains("blue")) {
             continue;
         }
-        if (!passes_filter(match, filter)) {
+
+        const nlohmann::json& red = alliances["red"];
+        const nlohmann::json& blue = alliances["blue"];
+        int red_score = red.value("score", -1);
+        int blue_score = blue.value("score", -1);
+        if (red_score < 0 || blue_score < 0) {
             continue;
         }
-        if (has_cutoff && !match_order_before(match_order_key(match), cutoff_key)) {
-            continue;
+
+        const double time = match_time_value(match);
+        add_scores(scores, red, red_score, time);
+        add_scores(scores, blue, blue_score, time);
+    }
+
+    auto self_it = scores.find(my_team_key);
+    if (self_it == scores.end()) {
+        return {};
+    }
+
+    double event_total = 0.0;
+    int event_matches = 0;
+    for (const auto& entry : scores) {
+        for (const auto& value : entry.second) {
+            event_total += static_cast<double>(value.second);
+            event_matches += 1;
         }
-        if (alliances["red"].value("score", -1) < 0 ||
-            alliances["blue"].value("score", -1) < 0) {
-            continue;
-        }
-        ordered.emplace_back(match_order_key(match), &match);
     }
+    const double event_avg = event_matches == 0 ? 1.0
+        : event_total / static_cast<double>(event_matches);
 
-    std::sort(ordered.begin(), ordered.end(),
-              [](const auto& left, const auto& right) {
-                  return match_order_before(left.first, right.first);
-              });
-
-    std::map<std::string, std::vector<int>> team_scores;
-    for (const auto& item : ordered) {
-        const nlohmann::json& alliances = (*item.second)["alliances"];
-        add_alliance(team_scores, alliances["red"], alliances["red"].value("score", 0), exclude);
-        add_alliance(team_scores, alliances["blue"], alliances["blue"].value("score", 0), exclude);
+    const auto& self_scores = self_it->second;
+    double self_total = 0.0;
+    for (const auto& value : self_scores) {
+        self_total += static_cast<double>(value.second);
     }
+    const double self_avg = self_scores.empty() ? 0.0
+        : self_total / static_cast<double>(self_scores.size());
 
-    if (team_scores.empty()) {
-        return result;
-    }
-
-    const double safe_confidence_count =
-        confidence_match_count > 0 ? static_cast<double>(confidence_match_count) : 1.0;
-
-    // First pass: raw per-team metrics.
     std::vector<PicklistEntry> entries;
-    std::vector<double> strength_raw;
-    std::vector<double> consistency_raw;  // negative stddev (higher is steadier)
-    std::vector<double> trend_raw;
-    entries.reserve(team_scores.size());
-    for (const auto& pair : team_scores) {
-        const std::vector<int>& scores = pair.second;
-        PicklistEntry entry;
-        entry.team_key = pair.first;
-        entry.matches = static_cast<int>(scores.size());
-        entry.average_score = mean_of(scores, 0, scores.size());
-        entry.stddev = population_stddev(scores, entry.average_score);
-        if (scores.size() >= 2) {
-            const size_t half = scores.size() / 2;
-            entry.trend = mean_of(scores, half, scores.size()) - mean_of(scores, 0, half);
+    entries.reserve(scores.size());
+    for (const auto& entry : scores) {
+        const std::string& team_key = entry.first;
+        if (team_key == my_team_key || exclude.count(team_key) > 0) {
+            continue;
         }
-        entry.confidence = std::clamp(static_cast<double>(entry.matches) / safe_confidence_count,
-                                      0.0, 1.0);
+        const auto& values = entry.second;
+        double total = 0.0;
+        for (const auto& value : values) {
+            total += static_cast<double>(value.second);
+        }
+        const double mean = values.empty() ? 0.0 : total / static_cast<double>(values.size());
+        const double stddev = compute_std_dev(values, mean);
+        const double recent_avg = compute_recent_average(values, 3);
+        const double strength = mean / event_avg;
+        const double consistency = 1.0 / (1.0 + stddev);
+        double complement = 0.0;
+        if (self_avg >= event_avg) {
+            complement = event_avg / (mean + event_avg);
+        } else {
+            complement = mean / (mean + event_avg);
+        }
+        const double gap = std::abs(mean - self_avg) / event_avg;
+        const double overlap = std::max(0.0, 1.0 - gap);
+        const double trend = event_avg > 0.0 ? (recent_avg - mean) / event_avg : 0.0;
+        const double confidence = std::min(1.0,
+                                           static_cast<double>(values.size())
+                                               / static_cast<double>(confidence_match_count));
 
-        strength_raw.push_back(entry.average_score);
-        consistency_raw.push_back(-entry.stddev);
-        trend_raw.push_back(entry.trend);
-        entries.push_back(std::move(entry));
+        PicklistEntry pick;
+        pick.team_key = team_key;
+        pick.average_score = mean;
+        pick.stddev = stddev;
+        pick.trend = trend;
+        pick.matches = static_cast<int>(values.size());
+        pick.confidence = confidence;
+        pick.complement = complement;
+        pick.overlap_penalty = overlap;
+        pick.picklist_score = weights.strength * strength
+            + weights.consistency * consistency
+            + weights.trend * trend
+            + weights.complement * complement
+            - weights.overlap * overlap;
+        entries.push_back(pick);
     }
 
-    const std::vector<double> strength_n = normalize(strength_raw);
-    const std::vector<double> consistency_n = normalize(consistency_raw);
-    const std::vector<double> trend_n = normalize(trend_raw);
-
-    const double weight_sum =
-        weights.strength + weights.consistency + weights.trend;
-    const double w_strength = weight_sum > 0.0 ? weights.strength / weight_sum : 0.0;
-    const double w_consistency = weight_sum > 0.0 ? weights.consistency / weight_sum : 0.0;
-    const double w_trend = weight_sum > 0.0 ? weights.trend / weight_sum : 0.0;
-
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const double base = w_strength * strength_n[i] +
-                            w_consistency * consistency_n[i] +
-                            w_trend * trend_n[i];
-        // Damp by confidence so a team with one lucky match cannot top the list.
-        entries[i].picklist_score = base * (0.5 + 0.5 * entries[i].confidence);
-    }
-
-    std::sort(entries.begin(), entries.end(),
-              [](const PicklistEntry& left, const PicklistEntry& right) {
-                  return left.picklist_score > right.picklist_score;
-              });
+    std::sort(entries.begin(), entries.end(), [](const PicklistEntry& left, const PicklistEntry& right) {
+        return left.picklist_score > right.picklist_score;
+    });
 
     return entries;
 }

@@ -196,6 +196,7 @@ python app.py
 ./build/frc_prediction --event 2024casj --evaluate --phase qm
 ./build/frc_prediction --event 2024casj --evaluate --phase elim --eval-json data/eval.json
 ./build/frc_prediction --event 2024casj --evaluate --phase all --eval-csv data/eval.csv
+./build/frc_prediction --event 2024casj --picklist frc254 --top 24 --strategy balanced
 
 当使用 --json 且未指定 --output 时，默认输出路径：
 
@@ -229,3 +230,50 @@ data/predictions/<match_key>.json
 ## 贡献与协作
 
 这个项目还处于早期阶段，优先目标是先做出可运行 MVP：能拉取一个赛事的数据，并对 qualification match 给出可解释的胜负概率。后续再扩展到更复杂的 picklist 和 elimination 预测。
+
+## Picklist 策略（如何计算）
+
+Picklist 的核心目标是联盟互补，而不是简单的强到弱排序。
+
+### 输入特征
+
+- 资格赛（默认）中的队伍平均得分
+- 标准差（稳定性）
+- 最近三场的趋势
+- 自己队伍的平均得分（用于互补/重叠惩罚）
+
+### 评分公式
+
+对每个候选队伍：
+
+```
+strength    = candidate_avg / event_avg
+consistency = 1 / (1 + stddev)
+trend       = (recent_avg - candidate_avg) / event_avg
+
+if my_avg >= event_avg:
+  complement = event_avg / (candidate_avg + event_avg)  # 更偏辅助
+else:
+  complement = candidate_avg / (candidate_avg + event_avg)  # 更偏得分
+
+overlap_penalty = max(0, 1 - abs(candidate_avg - my_avg) / event_avg)
+
+picklist_score =
+  w_strength * strength
+  + w_consistency * consistency
+  + w_trend * trend
+  + w_complement * complement
+  - w_overlap * overlap_penalty
+```
+
+策略预设权重：
+
+- **balanced**：0.45 strength，0.25 consistency，0.10 trend，0.25 complement，0.15 overlap
+- **offense**：0.60 strength，0.15 consistency，0.10 trend，0.30 complement，0.10 overlap
+- **consistency**：0.30 strength，0.50 consistency，0.10 trend，0.30 complement，0.10 overlap
+
+### 使用方式
+
+```
+./build/frc_prediction --event 2024casj --picklist frc254 --top 24 --strategy balanced
+```
