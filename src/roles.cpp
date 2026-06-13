@@ -27,12 +27,22 @@ bool breakdown_value(const nlohmann::json& match, bool red_side,
     return true;
 }
 
-// Endgame total for the alliance. Uses the well-known per-year total key; absent
-// that, contributes 0 so teleop/auto phase ratings still work.
-double endgame_points(const nlohmann::json& match, bool red_side) {
+// Endgame total for the alliance. Different seasons name this field differently,
+// so try the known per-year keys in turn. `found` reports whether any recognized
+// key was present, letting callers skip / flag matches whose season we cannot
+// decompose instead of silently treating endgame as 0.
+double endgame_points(const nlohmann::json& match, bool red_side, bool& found) {
+    found = false;
+    static const char* kEndgameKeys[] = {
+        "endGameTotalStagePoints",  // 2024 Crescendo
+        "endgamePoints",            // 2022 Rapid React / 2019 Deep Space
+    };
     double value = 0.0;
-    if (breakdown_value(match, red_side, "endGameTotalStagePoints", value)) {
-        return value;
+    for (const char* key : kEndgameKeys) {
+        if (breakdown_value(match, red_side, key, value)) {
+            found = true;
+            return value;
+        }
     }
     return 0.0;
 }
@@ -94,10 +104,12 @@ std::map<std::string, TeamRole> compute_team_roles_before(const nlohmann::json& 
         };
     const AllianceValueFn endgame_fn =
         [](const nlohmann::json& match, bool red_side, double& out) {
-            if (!match.contains("score_breakdown") || !match["score_breakdown"].is_object()) {
-                return false;
+            bool found = false;
+            const double value = endgame_points(match, red_side, found);
+            if (!found) {
+                return false;  // unknown season endgame key: skip instead of crediting 0
             }
-            out = endgame_points(match, red_side);
+            out = value;
             return true;
         };
     const AllianceValueFn teleop_fn =
@@ -107,8 +119,12 @@ std::map<std::string, TeamRole> compute_team_roles_before(const nlohmann::json& 
                 return false;
             }
             // teleopPoints includes the endgame stage points; strip them so the
-            // teleop phase reflects only in-match scoring.
-            out = teleop_total - endgame_points(match, red_side);
+            // teleop phase reflects only in-match scoring. Only subtract when the
+            // season's endgame key is recognized, otherwise leave teleop as-is
+            // rather than subtracting a bogus 0 (or mislabeling endgame points).
+            bool found = false;
+            const double endgame = endgame_points(match, red_side, found);
+            out = found ? teleop_total - endgame : teleop_total;
             return true;
         };
 
@@ -122,6 +138,9 @@ std::map<std::string, TeamRole> compute_team_roles_before(const nlohmann::json& 
         compute_alliance_ratings_before(matches_json, filter, target_match, endgame_fn);
 
     const bool has_phase = !auto_phase.empty() || !endgame_phase.empty();
+    // Endgame can only be decomposed for seasons whose key we know; surface that
+    // so the label step and the CLI do not imply a real 0 endgame contribution.
+    const bool has_endgame = !endgame_phase.empty();
 
     for (const auto& entry : offense) {
         const std::string& team = entry.first;
@@ -136,6 +155,7 @@ std::map<std::string, TeamRole> compute_team_roles_before(const nlohmann::json& 
         role.endgame_phase = find(endgame_phase);
         role.defense = find(defense);
         role.has_phase_data = has_phase;
+        role.has_endgame_data = has_endgame;
         roles.emplace(team, role);
     }
 
@@ -175,7 +195,7 @@ std::map<std::string, TeamRole> compute_team_roles_before(const nlohmann::json& 
             best = auto_z;
             role.primary = "auto";
         }
-        if (has_phase && endgame_z > best) {
+        if (has_endgame && endgame_z > best) {
             best = endgame_z;
             role.primary = "endgame";
         }

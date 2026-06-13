@@ -482,7 +482,8 @@ int main(int argc, char** argv) {
                     {"teleop", role.teleop_phase},
                     {"endgame", role.endgame_phase},
                     {"defense", role.defense},
-                    {"has_phase_data", role.has_phase_data}
+                    {"has_phase_data", role.has_phase_data},
+                    {"has_endgame_data", role.has_endgame_data}
                 });
             }
             std::cout << output.dump(2) << "\n";
@@ -501,6 +502,9 @@ int main(int argc, char** argv) {
             }
             if (!ordered.empty() && !ordered.front().second.has_phase_data) {
                 std::cout << "  (note: no score_breakdown available; phase ratings are 0)\n";
+            } else if (!ordered.empty() && !ordered.front().second.has_endgame_data) {
+                std::cout << "  (note: this season's endgame breakdown is unknown; "
+                             "endgame is 0 and teleop still includes endgame points)\n";
             }
         }
     }
