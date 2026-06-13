@@ -821,7 +821,6 @@ int main(int argc, char** argv) {
             std::cout << output.dump(2) << "\n";
         } else if (picklist_csv_path.empty()) {
             std::cout << "Picklist (" << event_key << ", strategy=" << strategy_name << "):\n";
-            std::cout << "Picklist (" << event_key << ", strategy=" << strategy_name << "):\n";
             std::cout << "  self=" << picklist.self_team_key
                       << " avg=" << picklist.self_performance.average_score
                       << " stddev=" << picklist.self_performance.std_dev

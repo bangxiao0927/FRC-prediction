@@ -17,6 +17,7 @@ const picklistTeam = document.getElementById("picklistTeam");
 const buildPicklistButton = document.getElementById("buildPicklist");
 const picklistStatus = document.getElementById("picklistStatus");
 const picklistTableBody = document.querySelector("#picklistTable tbody");
+const picklistSelfLabel = document.getElementById("picklistSelf");
 
 let chart;
 let picklistChart;
@@ -392,6 +393,24 @@ autoIntervalSelect.addEventListener("change", () => {
   }
 });
 
+function renderPicklistSelf(result) {
+  const selfTeam = result.self_team_key;
+  if (!selfTeam) {
+    picklistSelfLabel.hidden = true;
+    return;
+  }
+  // Make it explicit that the candidate list below excludes your own team and
+  // is scored relative to your team's performance.
+  picklistSelfLabel.innerHTML =
+    `<strong>Your team ${selfTeam}</strong> (excluded from picks)` +
+    `<span class="chip">Avg ${formatNumber(result.self_average_score, 1)}</span>` +
+    `<span class="chip">Recent ${formatNumber(result.self_recent_average, 1)}</span>` +
+    `<span class="chip">Std Dev ${formatNumber(result.self_stddev, 1)}</span>` +
+    `<span class="chip">Matches ${result.self_matches ?? "--"}</span>` +
+    `<span class="chip">Event Avg ${formatNumber(result.event_average_score, 1)}</span>`;
+  picklistSelfLabel.hidden = false;
+}
+
 function renderPicklistTable(teams) {
   picklistTableBody.innerHTML = "";
   teams.forEach((team) => {
@@ -458,6 +477,7 @@ async function buildPicklist() {
     });
 
     const teams = result.teams || [];
+    renderPicklistSelf(result);
     renderPicklistTable(teams);
     renderPicklistChart(teams);
     picklistStatus.textContent = `${teams.length} teams · ${result.strategy}`;

@@ -83,15 +83,15 @@ double compute_recent_average(std::vector<std::pair<double, int>> values, int co
 }
 
 bool is_before_cutoff(const nlohmann::json& match, const nlohmann::json& cutoff) {
-    if (cutoff.is_null()) {
+    if (!cutoff.is_object()) {
         return true;
     }
-    double cutoff_time = match_time_value(cutoff);
-    double match_time = match_time_value(match);
-    if (cutoff_time > 0.0 && match_time > 0.0) {
-        return match_time < cutoff_time;
-    }
-    return true;
+    // Mirror the stats/prediction cutoff: only matches scheduled strictly before
+    // the target count. Using the schedule order (comp level, set, match number)
+    // instead of timestamps keeps the picklist consistent with the dashboard and
+    // avoids leaking the target match or later matches when time fields are
+    // missing or zero.
+    return match_order_before(match_order_key(match), match_order_key(cutoff));
 }
 
 }  // namespace

@@ -192,22 +192,39 @@ int test_picklist_ranks_and_excludes() {
     matches.push_back(qual_match(3, "frcMid", 95, "frcWeak", 45));
     matches.push_back(qual_match(4, "frcStrong", 150, "frcWeak", 35));
     matches.push_back(qual_match(5, "frcMid", 85, "frcStrong", 150));
+    // frcSelf is the requesting team; it must have data so the picklist can be
+    // anchored to its performance, but it must never rank in its own list.
+    matches.push_back(qual_match(6, "frcSelf", 70, "frcWeak", 40));
+    matches.push_back(qual_match(7, "frcSelf", 75, "frcMid", 85));
 
     PicklistWeights weights;  // balanced default
-    std::vector<PicklistEntry> picklist =
+    PicklistSummary picklist =
         compute_picklist(matches, MatchFilter::QualificationOnly,
-                         nlohmann::json(nullptr), {}, weights, 6);
+                         nlohmann::json(nullptr), {}, weights, 6, "frcSelf");
 
     int failures = 0;
-    failures += expect_true(!picklist.empty() && picklist.front().team_key == "frcStrong",
+    failures += expect_true(!picklist.entries.empty()
+                                && picklist.entries.front().team_key == "frcStrong",
                             "the strongest, steadiest team should rank first");
+    failures += expect_true(picklist.self_team_key == "frcSelf"
+                                && picklist.self_performance.matches_played == 2,
+                            "self performance should be reported for the requesting team");
+
+    // The requesting team must never appear among its own candidates.
+    bool self_present = false;
+    for (const auto& entry : picklist.entries) {
+        if (entry.team_key == "frcSelf") {
+            self_present = true;
+        }
+    }
+    failures += expect_true(!self_present, "the requesting team must be excluded from its own picklist");
 
     // Excluding the top team should drop it from the result.
-    std::vector<PicklistEntry> without_strong =
+    PicklistSummary without_strong =
         compute_picklist(matches, MatchFilter::QualificationOnly,
-                         nlohmann::json(nullptr), {"frcStrong"}, weights, 6);
+                         nlohmann::json(nullptr), {"frcStrong"}, weights, 6, "frcSelf");
     bool strong_present = false;
-    for (const auto& entry : without_strong) {
+    for (const auto& entry : without_strong.entries) {
         if (entry.team_key == "frcStrong") {
             strong_present = true;
         }
