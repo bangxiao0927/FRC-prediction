@@ -107,6 +107,7 @@ def assets(filename: str):
 def api_run_picklist():
     payload = request.get_json(silent=True) or {}
     event_key = str(payload.get("event_key", "")).strip()
+    team_key = str(payload.get("team_key", "")).strip()
     strategy = str(payload.get("strategy", "balanced")).strip() or "balanced"
     exclude = str(payload.get("exclude", "")).strip()
     before = str(payload.get("before", "")).strip()
@@ -119,12 +120,14 @@ def api_run_picklist():
 
     if not event_key:
         return jsonify({"error": "event_key is required"}), 400
+    if not team_key:
+        return jsonify({"error": "team_key is required"}), 400
     if not BIN_PATH.exists():
         return jsonify({"error": "build/frc_prediction not found. Run cmake --build build first."}), 500
 
     args = [
         "--event", event_key,
-        "--picklist",
+        "--picklist", team_key,
         "--json",
         "--top", str(top_count),
         "--strategy", strategy

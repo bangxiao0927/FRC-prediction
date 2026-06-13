@@ -202,10 +202,10 @@ Examples:
 ./build/frc_prediction --event 2024casj --evaluate --phase elim --eval-json data/eval.json
 ./build/frc_prediction --event 2024casj --evaluate --phase all --eval-csv data/eval.csv
 ./build/frc_prediction --event 2024casj --picklist frc254 --top 24 --strategy balanced
-./build/frc_prediction --event 2024casj --picklist --top 24
-./build/frc_prediction --event 2024casj --picklist --strategy offense --exclude 1678,254
-./build/frc_prediction --event 2024casj --picklist --before qm40 --json
-./build/frc_prediction --event 2024casj --picklist --picklist-csv data/picklist.csv
+./build/frc_prediction --event 2024casj --picklist frc254 --top 24
+./build/frc_prediction --event 2024casj --picklist frc254 --strategy offense --exclude 1678,254
+./build/frc_prediction --event 2024casj --picklist frc254 --before qm40 --json
+./build/frc_prediction --event 2024casj --picklist frc254 --picklist-csv data/picklist.csv
 
 Default prediction output path when using --json without --output:
 

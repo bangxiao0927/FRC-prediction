@@ -13,6 +13,7 @@ const matchTeamsLabel = document.getElementById("matchTeams");
 const picklistStrategy = document.getElementById("picklistStrategy");
 const picklistExclude = document.getElementById("picklistExclude");
 const picklistTop = document.getElementById("picklistTop");
+const picklistTeam = document.getElementById("picklistTeam");
 const buildPicklistButton = document.getElementById("buildPicklist");
 const picklistStatus = document.getElementById("picklistStatus");
 const picklistTableBody = document.querySelector("#picklistTable tbody");
@@ -449,6 +450,7 @@ async function buildPicklist() {
   try {
     const result = await postJson("/api/picklist/run", {
       event_key: eventInput.value,
+      team_key: picklistTeam.value,
       strategy: picklistStrategy.value,
       exclude: picklistExclude.value,
       before: matchInput.value,
