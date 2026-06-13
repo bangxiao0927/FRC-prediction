@@ -128,12 +128,20 @@ Edit `config.json`:
   "confidence_match_count": 6,
   "score_diff_scale": 30.0,
   "sigmoid_scale": 1.0,
-  "model_version": "baseline-v1"
+  "model_version": "baseline-v1",
+  "use_opr": true
 }
 ```
 
 `config.json` is ignored by Git to avoid leaking API keys.
 Responses are cached under `cache_dir` for a short TTL to reduce duplicate API calls.
+
+`use_opr` (default `true`) selects the scoring model. With OPR enabled, each
+team's contribution is solved by least squares over alliance scores (an Offensive
+Power Rating), so an alliance estimate is the sum of its members' OPRs and is
+directly comparable to a real score. Set it to `false` to fall back to the legacy
+"sum of alliance averages" proxy. The OPR solve honors the same `--before`
+schedule cutoff, so backtests never leak future matches.
 
 ### 3. Build
 

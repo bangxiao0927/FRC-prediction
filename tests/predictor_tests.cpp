@@ -8,6 +8,7 @@
 #include "../src/predictor.h"
 #include "../src/stats.h"
 #include "../src/picklist.h"
+#include "../src/opr.h"
 
 namespace {
 
@@ -233,6 +234,130 @@ int test_picklist_ranks_and_excludes() {
     return failures;
 }
 
+int test_opr_recovers_individual_contributions() {
+    // Each team has a fixed true contribution and every alliance score is the
+    // exact sum of its members'. With a consistent, well-mixed schedule the OPR
+    // solve should recover those individual contributions closely, which the
+    // legacy "sum of alliance averages" model cannot do.
+    auto two_v_two = [](int number, const std::string& r1, const std::string& r2, int red_score,
+                        const std::string& b1, const std::string& b2, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {r1, r2}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {b1, b2}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    // True contributions: A=50, B=30, C=20, D=10.
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(two_v_two(1, "frcA", "frcB", 80, "frcC", "frcD", 30));
+    matches.push_back(two_v_two(2, "frcA", "frcC", 70, "frcB", "frcD", 40));
+    matches.push_back(two_v_two(3, "frcA", "frcD", 60, "frcB", "frcC", 50));
+
+    std::map<std::string, double> oprs =
+        compute_team_oprs(matches, MatchFilter::QualificationOnly);
+
+    int failures = 0;
+    failures += expect_true(oprs.size() == 4, "every team that played should get an OPR");
+    // Ordering must follow the true contributions even after ridge shrink.
+    failures += expect_true(oprs["frcA"] > oprs["frcB"] && oprs["frcB"] > oprs["frcC"]
+                                && oprs["frcC"] > oprs["frcD"],
+                            "OPR ordering should match the true contribution ordering");
+    // The point of OPR: it isolates a team's own contribution. For every team it
+    // must be closer to the truth than the legacy proxy (the team's average
+    // alliance score), which double-counts its partners.
+    const std::map<std::string, double> truth = {
+        {"frcA", 50.0}, {"frcB", 30.0}, {"frcC", 20.0}, {"frcD", 10.0}};
+    const std::map<std::string, double> legacy_alliance_average = {
+        {"frcA", 70.0}, {"frcB", 170.0 / 3.0}, {"frcC", 50.0}, {"frcD", 130.0 / 3.0}};
+    for (const auto& entry : truth) {
+        const std::string& team = entry.first;
+        const double opr_error = std::abs(oprs[team] - entry.second);
+        const double legacy_error = std::abs(legacy_alliance_average.at(team) - entry.second);
+        failures += expect_true(opr_error < legacy_error,
+                                "OPR must beat the legacy alliance average at recovering " + team);
+        failures += expect_true(opr_error < 10.0,
+                                "OPR should land within a reasonable margin of the true contribution");
+    }
+    return failures;
+}
+
+int test_opr_cutoff_excludes_target_and_later_matches() {
+    auto qual_match = [](int number, const std::string& red, int red_score,
+                         const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(qual_match(1, "frcA", 100, "frcB", 50));
+    nlohmann::json target = qual_match(2, "frcA", 80, "frcC", 90);
+    matches.push_back(target);
+    matches.push_back(qual_match(3, "frcA", 200, "frcD", 10));
+
+    std::map<std::string, double> oprs =
+        compute_team_oprs_before(matches, MatchFilter::QualificationOnly, target);
+
+    int failures = 0;
+    failures += expect_true(oprs.count("frcA") == 1 && oprs.count("frcB") == 1,
+                            "teams from matches before the target should be rated");
+    failures += expect_true(oprs.count("frcC") == 0,
+                            "the target match's teams must not leak into pre-target OPR");
+    failures += expect_true(oprs.count("frcD") == 0,
+                            "later matches must not leak into pre-target OPR");
+    return failures;
+}
+
+int test_predict_match_uses_opr_when_supplied() {
+    nlohmann::json match = {
+        {"alliances", {
+            {"red", {{"team_keys", {"frc1", "frc2", "frc3"}}}},
+            {"blue", {{"team_keys", {"frc4", "frc5", "frc6"}}}}
+        }}
+    };
+
+    // Full data so confidence is 1.0 and the adjusted estimate equals the raw
+    // OPR sum (no shrink), making the arithmetic exact and easy to assert.
+    std::map<std::string, TeamStats> stats = {
+        {"frc1", TeamStats{6, 360, 60.0}},
+        {"frc2", TeamStats{6, 360, 60.0}},
+        {"frc3", TeamStats{6, 360, 60.0}},
+        {"frc4", TeamStats{6, 360, 60.0}},
+        {"frc5", TeamStats{6, 360, 60.0}},
+        {"frc6", TeamStats{6, 360, 60.0}}
+    };
+    std::map<std::string, double> oprs = {
+        {"frc1", 30.0}, {"frc2", 20.0}, {"frc3", 10.0},
+        {"frc4", 15.0}, {"frc5", 15.0}, {"frc6", 10.0}
+    };
+
+    MatchPrediction prediction = predict_match(match, stats, 1, 30.0, 1.0, oprs);
+
+    int failures = 0;
+    failures += expect_true(prediction.uses_opr,
+                            "supplying OPRs should switch the model into OPR mode");
+    failures += expect_true(almost_equal(prediction.red_score_total_estimate, 60.0),
+                            "red alliance estimate should be the sum of member OPRs");
+    failures += expect_true(almost_equal(prediction.blue_score_total_estimate, 40.0),
+                            "blue alliance estimate should be the sum of member OPRs");
+    failures += expect_true(almost_equal(prediction.adjusted_score_diff_estimate, 20.0),
+                            "with full confidence the adjusted diff equals the OPR margin");
+    failures += expect_true(prediction.red_win_probability > 0.5,
+                            "the stronger OPR alliance should be favored");
+    return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -242,5 +367,8 @@ int main() {
     failures += test_total_uses_scheduled_team_count();
     failures += test_cutoff_excludes_target_and_later_matches();
     failures += test_picklist_ranks_and_excludes();
+    failures += test_opr_recovers_individual_contributions();
+    failures += test_opr_cutoff_excludes_target_and_later_matches();
+    failures += test_predict_match_uses_opr_when_supplied();
     return failures;
 }

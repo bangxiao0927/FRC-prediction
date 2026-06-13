@@ -30,10 +30,17 @@ struct MatchPrediction {
     double blue_win_probability = 0.5;
     double red_confidence = 0.0;
     double blue_confidence = 0.0;
+    // True when the score estimates came from the OPR contribution model rather
+    // than the legacy "sum of alliance averages" proxy.
+    bool uses_opr = false;
 };
 
+// When team_oprs is non-empty the alliance estimate is the sum of its members'
+// OPRs (a real score scale, directly comparable to actual margins). When it is
+// empty the legacy model is used: the sum of each team's average alliance score.
 MatchPrediction predict_match(const nlohmann::json& match_json,
                               const std::map<std::string, TeamStats>& team_stats,
                               int confidence_match_count,
                               double score_diff_scale,
-                              double sigmoid_scale);
+                              double sigmoid_scale,
+                              const std::map<std::string, double>& team_oprs = {});
