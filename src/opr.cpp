@@ -97,12 +97,14 @@ std::vector<double> solve_linear_system(std::vector<std::vector<double>> matrix,
 
 }  // namespace
 
-std::map<std::string, double> compute_team_oprs_before(const nlohmann::json& matches_json,
-                                                       MatchFilter filter,
-                                                       const nlohmann::json& target_match) {
-    std::map<std::string, double> oprs;
-    if (!matches_json.is_array()) {
-        return oprs;
+std::map<std::string, double> compute_alliance_ratings_before(
+    const nlohmann::json& matches_json,
+    MatchFilter filter,
+    const nlohmann::json& target_match,
+    const AllianceValueFn& value_fn) {
+    std::map<std::string, double> ratings;
+    if (!matches_json.is_array() || !value_fn) {
+        return ratings;
     }
 
     const bool has_cutoff = target_match.is_object();
@@ -112,7 +114,7 @@ std::map<std::string, double> compute_team_oprs_before(const nlohmann::json& mat
     std::map<std::string, int> team_index;
     std::vector<std::string> team_keys;
     std::vector<Observation> observations;
-    double total_score = 0.0;
+    double total_value = 0.0;
     double total_team_slots = 0.0;
 
     auto index_for = [&](const std::string& key) {
@@ -126,18 +128,18 @@ std::map<std::string, double> compute_team_oprs_before(const nlohmann::json& mat
         return index;
     };
 
-    auto add_alliance = [&](const nlohmann::json& alliance, double score) {
+    auto add_alliance = [&](const nlohmann::json& alliance, double value) {
         std::vector<std::string> keys;
         if (!collect_team_keys(alliance, keys)) {
             return;
         }
         Observation obs;
-        obs.score = score;
+        obs.score = value;
         for (const auto& key : keys) {
             obs.team_indices.push_back(index_for(key));
         }
         observations.push_back(std::move(obs));
-        total_score += score;
+        total_value += value;
         total_team_slots += static_cast<double>(keys.size());
     };
 
@@ -156,18 +158,21 @@ std::map<std::string, double> compute_team_oprs_before(const nlohmann::json& mat
             continue;
         }
 
-        const int red_score = alliances["red"].value("score", -1);
-        const int blue_score = alliances["blue"].value("score", -1);
-        if (red_score < 0 || blue_score < 0) {
-            continue;
+        // The value attributed to each alliance is supplied by the caller, so the
+        // same solve produces offense OPR, per-phase OPR, or a defensive rating.
+        double red_value = 0.0;
+        double blue_value = 0.0;
+        if (value_fn(match, true, red_value)) {
+            add_alliance(alliances["red"], red_value);
         }
-        add_alliance(alliances["red"], static_cast<double>(red_score));
-        add_alliance(alliances["blue"], static_cast<double>(blue_score));
+        if (value_fn(match, false, blue_value)) {
+            add_alliance(alliances["blue"], blue_value);
+        }
     }
 
     const size_t n = team_keys.size();
     if (n == 0 || observations.empty()) {
-        return oprs;
+        return ratings;
     }
 
     // Ridge-to-prior regularization. The prior is the average single-team
@@ -178,8 +183,8 @@ std::map<std::string, double> compute_team_oprs_before(const nlohmann::json& mat
     const double mean_alliance_size = total_team_slots > 0.0
         ? total_team_slots / static_cast<double>(observations.size())
         : 3.0;
-    const double mean_alliance_score = total_score / static_cast<double>(observations.size());
-    const double prior = mean_alliance_size > 0.0 ? mean_alliance_score / mean_alliance_size : 0.0;
+    const double mean_alliance_value = total_value / static_cast<double>(observations.size());
+    const double prior = mean_alliance_size > 0.0 ? mean_alliance_value / mean_alliance_size : 0.0;
     const double lambda = 1.0;
 
     std::vector<std::vector<double>> normal(n, std::vector<double>(n, 0.0));
@@ -199,9 +204,28 @@ std::map<std::string, double> compute_team_oprs_before(const nlohmann::json& mat
 
     const std::vector<double> solution = solve_linear_system(std::move(normal), std::move(rhs));
     for (size_t i = 0; i < n; ++i) {
-        oprs[team_keys[i]] = solution[i];
+        ratings[team_keys[i]] = solution[i];
     }
-    return oprs;
+    return ratings;
+}
+
+std::map<std::string, double> compute_team_oprs_before(const nlohmann::json& matches_json,
+                                                       MatchFilter filter,
+                                                       const nlohmann::json& target_match) {
+    // OPR attributes each alliance's own total score to its members. Both scores
+    // must be present so the match is a valid, fully-scored observation.
+    const AllianceValueFn own_score =
+        [](const nlohmann::json& match, bool red_side, double& out) {
+            const nlohmann::json& alliances = match["alliances"];
+            const int red_score = alliances["red"].value("score", -1);
+            const int blue_score = alliances["blue"].value("score", -1);
+            if (red_score < 0 || blue_score < 0) {
+                return false;
+            }
+            out = static_cast<double>(red_side ? red_score : blue_score);
+            return true;
+        };
+    return compute_alliance_ratings_before(matches_json, filter, target_match, own_score);
 }
 
 std::map<std::string, double> compute_team_oprs(const nlohmann::json& matches_json,

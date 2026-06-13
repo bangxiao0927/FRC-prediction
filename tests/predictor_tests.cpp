@@ -9,6 +9,7 @@
 #include "../src/stats.h"
 #include "../src/picklist.h"
 #include "../src/opr.h"
+#include "../src/roles.h"
 
 namespace {
 
@@ -451,6 +452,147 @@ int test_predict_match_uses_opr_when_supplied() {
     return failures;
 }
 
+// Build a 2v2 qualification match whose alliance score_breakdown is the sum of
+// its members' phase contributions (auto / teleop / endgame). teleopPoints
+// includes endgame stage points, mirroring real TBA data.
+nlohmann::json phase_match(int number,
+                           const std::string& r1, const std::string& r2,
+                           int r_auto, int r_teleop, int r_endgame,
+                           const std::string& b1, const std::string& b2,
+                           int b_auto, int b_teleop, int b_endgame) {
+    auto breakdown = [](int a, int t, int e) {
+        return nlohmann::json{
+            {"autoPoints", a},
+            {"teleopPoints", t + e},
+            {"endGameTotalStagePoints", e}
+        };
+    };
+    const int r_score = r_auto + r_teleop + r_endgame;
+    const int b_score = b_auto + b_teleop + b_endgame;
+    return nlohmann::json{
+        {"comp_level", "qm"},
+        {"set_number", 1},
+        {"match_number", number},
+        {"alliances", {
+            {"red", {{"team_keys", {r1, r2}}, {"score", r_score}}},
+            {"blue", {{"team_keys", {b1, b2}}, {"score", b_score}}}
+        }},
+        {"score_breakdown", {
+            {"red", breakdown(r_auto, r_teleop, r_endgame)},
+            {"blue", breakdown(b_auto, b_teleop, b_endgame)}
+        }}
+    };
+}
+
+int test_roles_decompose_phases() {
+    // True phase contributions:
+    //   frcAuto: auto-heavy   (10/5/0)
+    //   frcEnd:  endgame-heavy (2/5/8)
+    //   frcMid1/frcMid2: balanced (5/10/1)
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(phase_match(1, "frcAuto", "frcEnd", 12, 10, 8,
+                                     "frcMid1", "frcMid2", 10, 20, 2));
+    matches.push_back(phase_match(2, "frcAuto", "frcMid1", 15, 15, 1,
+                                     "frcEnd", "frcMid2", 7, 15, 9));
+    matches.push_back(phase_match(3, "frcAuto", "frcMid2", 15, 15, 1,
+                                     "frcEnd", "frcMid1", 7, 15, 9));
+
+    std::map<std::string, TeamRole> roles =
+        compute_team_roles(matches, MatchFilter::QualificationOnly);
+
+    int failures = 0;
+    failures += expect_true(roles.size() == 4, "every team that played should get a role profile");
+    failures += expect_true(roles["frcAuto"].has_phase_data,
+                            "phase ratings should be available when score_breakdown exists");
+
+    // The auto specialist should top the auto phase; the endgame specialist the
+    // endgame phase. These orderings survive the ridge shrink.
+    failures += expect_true(roles["frcAuto"].auto_phase > roles["frcEnd"].auto_phase
+                                && roles["frcAuto"].auto_phase > roles["frcMid1"].auto_phase,
+                            "the auto specialist should have the highest auto contribution");
+    failures += expect_true(roles["frcEnd"].endgame_phase > roles["frcAuto"].endgame_phase
+                                && roles["frcEnd"].endgame_phase > roles["frcMid1"].endgame_phase,
+                            "the endgame specialist should have the highest endgame contribution");
+    failures += expect_true(roles["frcEnd"].primary == "endgame",
+                            "the endgame specialist should be labeled an endgame role");
+    failures += expect_true(roles["frcAuto"].primary == "auto",
+                            "the auto specialist should be labeled an auto role");
+    return failures;
+}
+
+int test_roles_defense_rating() {
+    // 1v1 matches: frcWall holds opponents to single digits; frcOpen lets them
+    // score ~90. Defense is a DPR (opponent score share), so frcWall must rate
+    // lower and be tagged a defensive role. No score_breakdown is present here.
+    auto duel = [](int number, const std::string& red, int red_score,
+                   const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(duel(1, "frcWall", 50, "frcA", 10));
+    matches.push_back(duel(2, "frcWall", 50, "frcB", 12));
+    matches.push_back(duel(3, "frcWall", 50, "frcC", 8));
+    matches.push_back(duel(4, "frcOpen", 50, "frcD", 88));
+    matches.push_back(duel(5, "frcOpen", 50, "frcE", 92));
+    matches.push_back(duel(6, "frcOpen", 50, "frcF", 90));
+
+    std::map<std::string, TeamRole> roles =
+        compute_team_roles(matches, MatchFilter::QualificationOnly);
+
+    int failures = 0;
+    failures += expect_true(roles.count("frcWall") == 1 && roles.count("frcOpen") == 1,
+                            "both anchor teams should be rated");
+    failures += expect_true(roles["frcWall"].defense < roles["frcOpen"].defense,
+                            "the team that suppresses opponents should have a lower defense rating");
+    failures += expect_true(roles["frcWall"].primary == "defense",
+                            "a clear opponent-suppressing team should be tagged defense");
+    failures += expect_true(!roles["frcWall"].has_phase_data,
+                            "phase data should be absent when no score_breakdown is provided");
+    return failures;
+}
+
+int test_roles_cutoff_no_leakage() {
+    auto duel = [](int number, const std::string& red, int red_score,
+                   const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(duel(1, "frcA", 100, "frcB", 50));
+    nlohmann::json target = duel(2, "frcA", 80, "frcC", 90);
+    matches.push_back(target);
+    matches.push_back(duel(3, "frcA", 200, "frcD", 10));
+
+    std::map<std::string, TeamRole> roles =
+        compute_team_roles_before(matches, MatchFilter::QualificationOnly, target);
+
+    int failures = 0;
+    failures += expect_true(roles.count("frcA") == 1 && roles.count("frcB") == 1,
+                            "teams from matches before the target should be rated");
+    failures += expect_true(roles.count("frcC") == 0,
+                            "the target match's teams must not leak into pre-target roles");
+    failures += expect_true(roles.count("frcD") == 0,
+                            "later matches must not leak into pre-target roles");
+    return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -465,5 +607,8 @@ int main() {
     failures += test_opr_recovers_individual_contributions();
     failures += test_opr_cutoff_excludes_target_and_later_matches();
     failures += test_predict_match_uses_opr_when_supplied();
+    failures += test_roles_decompose_phases();
+    failures += test_roles_defense_rating();
+    failures += test_roles_cutoff_no_leakage();
     return failures;
 }
