@@ -184,13 +184,16 @@ By default a prediction only uses the current event's matches. Pass
 team's **prior-season form** from its other events that year:
 
 - For every team in the match, the CLI pulls its season matches and computes the
-  team's **OPR at each *other* event** it played that year (restricted to matches
-  before this one), then averages those event OPRs weighted by matches played.
-  Running a real OPR per event deconvolves teammates, so the prior reflects the
-  robot's own contribution rather than a raw points total. (If no event OPR can be
-  derived it falls back to the simpler per-team score average.) Everything is
-  restricted to matches played strictly *before* this match, so there is no
-  future-data leakage, and a team's first event of the season has no history.
+  team's **scoring OPR at each *other* event** it played that year (restricted to
+  matches before this one), then averages those event OPRs weighted by matches
+  played. The scoring OPR sums the team's auto + teleop + endgame phase
+  contributions, so it **excludes foul points** (awarded for the opponent's
+  infractions, not a stable trait of the robot) and reflects the robot's own
+  output. Running a real OPR per event also deconvolves teammates. (It falls back
+  to total OPR for an event with no `score_breakdown`, and to a per-team score
+  average if no event OPR can be derived.) Everything is restricted to matches
+  played strictly *before* this match, so there is no future-data leakage, and a
+  team's first event of the season has no history.
 - The historical prior is blended with the team's current-event OPR, weighted by
   how many current matches it has played: a team with `confidence_match_count`+
   matches is trusted entirely on current form, while a team with no current data

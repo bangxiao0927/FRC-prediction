@@ -350,13 +350,16 @@ int count_team_matches(const nlohmann::json& matches, const std::string& team) {
     return count;
 }
 
-// A team's cross-event historical prior: the team's OPR at each OTHER event it
-// played this season (restricted to matches before the cutoff), averaged and
-// weighted by how many matches it played at each event. Computing a real OPR per
-// event deconvolves teammates, so the prior is far more meaningful than a raw
-// points-per-match average. Falls back to the score-based form (same
-// points-per-team scale) when no event OPR can be derived. Returns false when the
-// team has no usable prior at all.
+// A team's cross-event historical prior: at each OTHER event it played this
+// season (restricted to matches before the cutoff) we compute the team's
+// *scoring* OPR — the sum of its auto + teleop + endgame phase contributions —
+// and average those across events, weighted by matches played. Using the scoring
+// phases instead of the raw total OPR drops foul points, which are awarded for
+// the OPPONENT's infractions and are not a stable trait of the robot, so the
+// prior reflects the team's own output more cleanly. When an event has no
+// score_breakdown (phase data unavailable) we fall back to that event's total
+// OPR, and if no event OPR can be derived at all we fall back to the cruder
+// per-team score form. Returns false when the team has no usable prior.
 bool team_history_prior(TbaClient& client,
                         const nlohmann::json& season,
                         const std::string& team,
@@ -384,17 +387,23 @@ bool team_history_prior(TbaClient& client,
     for (const auto& ev : other_events) {
         const nlohmann::json full = client.get_event_matches(ev);
         const nlohmann::json prior_matches = matches_before_time(full, before);
-        const std::map<std::string, double> oprs =
-            compute_team_oprs(prior_matches, MatchFilter::AllPlayed);
-        const auto it = oprs.find(team);
-        if (it == oprs.end()) {
+        const std::map<std::string, TeamRole> roles =
+            compute_team_roles(prior_matches, MatchFilter::AllPlayed);
+        const auto it = roles.find(team);
+        if (it == roles.end()) {
             continue;
         }
+        const TeamRole& role = it->second;
+        const double scoring =
+            role.auto_phase + role.teleop_phase + role.endgame_phase;
+        // Prefer the foul-free scoring OPR; fall back to total OPR (offense) when
+        // this event has no usable phase breakdown.
+        const double value = (role.has_phase_data && scoring > 0.0) ? scoring : role.offense;
         const int weight = count_team_matches(prior_matches, team);
         if (weight <= 0) {
             continue;
         }
-        weighted_sum += it->second * static_cast<double>(weight);
+        weighted_sum += value * static_cast<double>(weight);
         weight_total += static_cast<double>(weight);
     }
     if (weight_total > 0.0) {
