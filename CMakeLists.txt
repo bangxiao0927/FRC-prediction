@@ -13,6 +13,7 @@ add_executable(frc_prediction
     src/cache.cpp
     src/config.cpp
     src/main.cpp
+    src/picklist.cpp
     src/predictor.cpp
     src/stats.cpp
     src/tba_client.cpp
@@ -28,6 +29,7 @@ enable_testing()
 
 add_executable(frc_prediction_tests
     tests/predictor_tests.cpp
+    src/picklist.cpp
     src/predictor.cpp
     src/stats.cpp
 )

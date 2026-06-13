@@ -115,6 +115,51 @@
       </table>
     </section>
 
+    <section>
+      <h2>Picklist</h2>
+      <div class="controls" aria-label="Picklist controls">
+        <label>
+          Your Team
+          <input id="picklistTeam" type="text" placeholder="frc254" autocomplete="off" />
+        </label>
+        <label>
+          Strategy
+          <select id="picklistStrategy">
+            <option value="balanced" selected>Balanced</option>
+            <option value="offense">Offense</option>
+            <option value="consistency">Consistency</option>
+          </select>
+        </label>
+        <label>
+          Exclude
+          <input id="picklistExclude" type="text" placeholder="e.g. 1678, 254" autocomplete="off" />
+        </label>
+        <label>
+          Top
+          <input id="picklistTop" type="number" min="1" max="100" value="24" />
+        </label>
+        <button id="buildPicklist" type="button">Build picklist</button>
+        <span id="picklistStatus" role="status"></span>
+      </div>
+      <div class="chart-container">
+        <canvas id="picklistChart"></canvas>
+      </div>
+      <table id="picklistTable">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Team</th>
+            <th>Score</th>
+            <th>Average</th>
+            <th>Std Dev</th>
+            <th>Trend</th>
+            <th>Matches</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
     <script src="/assets/app.js"></script>
   </body>
 </html>

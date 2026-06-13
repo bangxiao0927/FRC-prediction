@@ -63,6 +63,12 @@ Outputs:
 - Alliance score estimates
 - Match win probability
 
+The CLI `--picklist` ranks teams from qualification play using a weighted mix of
+strength (average score), consistency (low score variance), and trend (recent vs
+early improvement), damped by how many matches a team has played. Use
+`--strategy balanced|offense|consistency` to change the mix, `--exclude` to drop
+already-picked teams, and `--before MATCH_KEY` to rank as of a point in the event.
+
 ## Project Structure
 
 ```text
@@ -160,7 +166,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-3. Open `http://127.0.0.1:5000`, enter an event key (and optionally a match),
+3. Open `http://127.0.0.1:5001`, enter an event key (and optionally a match),
    then click **Run**. The dashboard runs the CLI for you — no need to generate
    files by hand.
 
@@ -173,6 +179,9 @@ The dashboard provides:
 - **Match shorthand**: type `3`, `qm3`, or `sf2m1` instead of the full key.
 - **Auto-refresh** with a configurable interval to keep predictions current
   during a live event.
+- A **Picklist** section: pick a strategy (balanced/offense/consistency), exclude
+  already-picked teams, and build a ranked table + chart. It reuses the Event and
+  Match fields (Match acts as an "as of" cutoff).
 
 Examples:
 
@@ -192,6 +201,11 @@ Examples:
 ./build/frc_prediction --event 2024casj --evaluate --phase qm
 ./build/frc_prediction --event 2024casj --evaluate --phase elim --eval-json data/eval.json
 ./build/frc_prediction --event 2024casj --evaluate --phase all --eval-csv data/eval.csv
+./build/frc_prediction --event 2024casj --picklist frc254 --top 24 --strategy balanced
+./build/frc_prediction --event 2024casj --picklist frc254 --top 24
+./build/frc_prediction --event 2024casj --picklist frc254 --strategy offense --exclude 1678,254
+./build/frc_prediction --event 2024casj --picklist frc254 --before qm40 --json
+./build/frc_prediction --event 2024casj --picklist frc254 --picklist-csv data/picklist.csv
 
 Default prediction output path when using --json without --output:
 
@@ -225,3 +239,50 @@ Qualification predictions use qualification matches only; elimination prediction
 ## Contributing
 
 This project is early-stage. The first milestone is an MVP that can pull one event and provide explainable win probabilities for qualification matches, then expand to picklist and elimination predictions.
+
+## Picklist Strategy (How Ranking Is Computed)
+
+Picklist recommendations are built to maximize alliance fit rather than raw strength.
+
+### Inputs
+
+- Per-team average score from qualification-only matches (by default).
+- Standard deviation of match scores (consistency).
+- Recent trend from the last three completed matches.
+- Your team key (to compute complement/overlap).
+
+### Scores
+
+For each candidate team:
+
+```
+strength    = candidate_avg / event_avg
+consistency = 1 / (1 + stddev)
+trend       = (recent_avg - candidate_avg) / event_avg
+
+if my_avg >= event_avg:
+  complement = event_avg / (candidate_avg + event_avg)  # favors support roles
+else:
+  complement = candidate_avg / (candidate_avg + event_avg)  # favors scoring partners
+
+overlap_penalty = max(0, 1 - abs(candidate_avg - my_avg) / event_avg)
+
+picklist_score =
+  w_strength * strength
+  + w_consistency * consistency
+  + w_trend * trend
+  + w_complement * complement
+  - w_overlap * overlap_penalty
+```
+
+Strategy presets map to different weights:
+
+- **balanced**: 0.45 strength, 0.25 consistency, 0.10 trend, 0.25 complement, 0.15 overlap
+- **offense**: 0.60 strength, 0.15 consistency, 0.10 trend, 0.30 complement, 0.10 overlap
+- **consistency**: 0.30 strength, 0.50 consistency, 0.10 trend, 0.30 complement, 0.10 overlap
+
+### Usage
+
+```
+./build/frc_prediction --event 2024casj --picklist frc254 --top 24 --strategy balanced
+```

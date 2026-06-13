@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <vector>
 
@@ -14,6 +15,7 @@
 
 #include "config.h"
 #include "predictor.h"
+#include "picklist.h"
 #include "tba_client.h"
 #include "stats.h"
 
@@ -106,7 +108,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming|--evaluate] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--eval-json FILE] [--eval-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -185,6 +187,57 @@ nlohmann::json find_match_by_key(const nlohmann::json& matches,
     return nlohmann::json(nullptr);
 }
 
+// Maps a --strategy name to picklist weights. Returns false for unknown names.
+bool resolve_strategy(const std::string& strategy, PicklistWeights& out) {
+    if (strategy.empty() || strategy == "balanced") {
+        out = PicklistWeights{0.45, 0.25, 0.1, 0.25, 0.15};
+        return true;
+    }
+    if (strategy == "offense") {
+        out = PicklistWeights{0.6, 0.15, 0.1, 0.3, 0.1};
+        return true;
+    }
+    if (strategy == "consistency") {
+        out = PicklistWeights{0.3, 0.5, 0.1, 0.3, 0.1};
+        return true;
+    }
+    return false;
+}
+
+// Parses a comma-separated team list into normalized team keys (e.g. "254" or
+// "frc254" -> "frc254").
+std::set<std::string> parse_team_set(const std::string& csv) {
+    std::set<std::string> teams;
+    std::stringstream stream(csv);
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        // Trim surrounding whitespace.
+        const size_t start = token.find_first_not_of(" \t");
+        const size_t end = token.find_last_not_of(" \t");
+        if (start == std::string::npos) {
+            continue;
+        }
+        std::string key = token.substr(start, end - start + 1);
+        std::transform(key.begin(), key.end(), key.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (key.rfind("frc", 0) != 0) {
+            key = "frc" + key;
+        }
+        teams.insert(key);
+    }
+    return teams;
+}
+
+std::string normalize_team_key(const std::string& raw) {
+    std::string key = raw;
+    std::transform(key.begin(), key.end(), key.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (key.rfind("frc", 0) != 0) {
+        key = "frc" + key;
+    }
+    return key;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -213,16 +266,21 @@ int main(int argc, char** argv) {
     const bool predict_upcoming = has_flag(args, "--predict-upcoming");
     const bool output_json = has_flag(args, "--json");
     const bool evaluate_model = has_flag(args, "--evaluate");
+    const std::string picklist_team_key = get_arg_value(args, "--picklist");
+    const bool show_picklist = has_flag(args, "--picklist") || !picklist_team_key.empty();
     const std::string output_path = get_arg_value(args, "--output");
     const std::string stats_csv_path = get_arg_value(args, "--stats-csv");
     const std::string phase_arg = get_arg_value(args, "--phase");
     const std::string eval_json_path = get_arg_value(args, "--eval-json");
     const std::string eval_csv_path = get_arg_value(args, "--eval-csv");
     const std::string before_match_arg = get_arg_value(args, "--before");
+    const std::string strategy_arg = get_arg_value(args, "--strategy");
+    const std::string exclude_arg = get_arg_value(args, "--exclude");
+    const std::string picklist_csv_path = get_arg_value(args, "--picklist-csv");
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
-        && predict_match_key.empty() && !predict_upcoming && !evaluate_model) {
+        && predict_match_key.empty() && !predict_upcoming && !evaluate_model && !show_picklist) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -663,6 +721,110 @@ int main(int argc, char** argv) {
             std::cout << "  matches=" << evaluated << "\n";
             std::cout << "  mae=" << mae << "\n";
             std::cout << "  winner_accuracy=" << accuracy << "\n";
+        }
+    }
+
+    if (show_picklist) {
+        if (picklist_team_key.empty()) {
+            std::cerr << "--picklist requires your team key (e.g. frc254).\n";
+            return 1;
+        }
+        const std::string normalized_picklist_key = normalize_team_key(picklist_team_key);
+        nlohmann::json matches = client.get_event_matches(event_key);
+        if (matches.empty()) {
+            std::cerr << "Failed to fetch event matches for " << event_key << ".\n";
+            return 1;
+        }
+
+        // Picklists are built from qualification play by default.
+        MatchFilter picklist_filter = MatchFilter::QualificationOnly;
+        if (!resolve_phase_filter(phase_arg, MatchFilter::QualificationOnly, picklist_filter)) {
+            std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
+            return 1;
+        }
+
+        PicklistWeights weights;
+        if (!resolve_strategy(strategy_arg, weights)) {
+            std::cerr << "Unknown strategy: " << strategy_arg
+                      << ". Use balanced, offense, or consistency.\n";
+            return 1;
+        }
+
+        nlohmann::json before_match = nlohmann::json(nullptr);
+        if (!before_match_arg.empty()) {
+            before_match = find_match_by_key(matches, event_key, before_match_arg);
+            if (before_match.is_null()) {
+                std::cerr << "Match key not found for --before: "
+                          << normalize_match_key(event_key, before_match_arg) << "\n";
+                return 1;
+            }
+        }
+
+        const std::set<std::string> exclude = parse_team_set(exclude_arg);
+
+        std::vector<PicklistEntry> picklist = compute_picklist(
+            matches, picklist_filter, before_match, exclude, weights,
+            config.confidence_match_count, normalized_picklist_key);
+        if (picklist.empty()) {
+            std::cerr << "No picklist computed for " << event_key
+                      << " (not enough match data yet).\n";
+            return 1;
+        }
+
+        const int limit = top_count > 0
+            ? std::min(top_count, static_cast<int>(picklist.size()))
+            : static_cast<int>(picklist.size());
+        const std::string strategy_name = strategy_arg.empty() ? "balanced" : strategy_arg;
+
+        if (!picklist_csv_path.empty()) {
+            std::ofstream file(picklist_csv_path);
+            if (!file) {
+                std::cerr << "Failed to write picklist CSV to " << picklist_csv_path << ".\n";
+                return 1;
+            }
+            file << "rank,team_key,picklist_score,average_score,stddev,trend,matches,confidence\n";
+            for (int i = 0; i < limit; ++i) {
+                const PicklistEntry& e = picklist[i];
+                file << (i + 1) << "," << e.team_key << "," << e.picklist_score << ","
+                     << e.average_score << "," << e.stddev << "," << e.trend << ","
+                     << e.matches << "," << e.confidence << "\n";
+            }
+            std::cout << "Wrote picklist CSV to " << picklist_csv_path << "\n";
+        }
+
+        if (output_json) {
+            nlohmann::json output = {
+                {"event_key", event_key},
+                {"strategy", strategy_name},
+                {"phase", phase_arg.empty() ? "qm" : phase_arg},
+                {"teams", nlohmann::json::array()}
+            };
+            for (int i = 0; i < limit; ++i) {
+                const PicklistEntry& e = picklist[i];
+                output["teams"].push_back({
+                    {"rank", i + 1},
+                    {"team_key", e.team_key},
+                    {"picklist_score", e.picklist_score},
+                    {"average_score", e.average_score},
+                    {"stddev", e.stddev},
+                    {"trend", e.trend},
+                    {"matches", e.matches},
+                    {"confidence", e.confidence}
+                });
+            }
+            std::cout << output.dump(2) << "\n";
+        } else if (picklist_csv_path.empty()) {
+            std::cout << "Picklist (" << event_key << ", strategy=" << strategy_name << "):\n";
+            for (int i = 0; i < limit; ++i) {
+                const PicklistEntry& e = picklist[i];
+                std::cout << "  " << (i + 1) << ". " << e.team_key
+                          << " | score=" << e.picklist_score
+                          << " avg=" << e.average_score
+                          << " stddev=" << e.stddev
+                          << " trend=" << e.trend
+                          << " matches=" << e.matches
+                          << "\n";
+            }
         }
     }
 

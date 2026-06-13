@@ -103,6 +103,52 @@ def assets(filename: str):
     return send_from_directory(WEB_DIR, filename)
 
 
+@app.post("/api/picklist/run")
+def api_run_picklist():
+    payload = request.get_json(silent=True) or {}
+    event_key = str(payload.get("event_key", "")).strip()
+    team_key = str(payload.get("team_key", "")).strip()
+    strategy = str(payload.get("strategy", "balanced")).strip() or "balanced"
+    exclude = str(payload.get("exclude", "")).strip()
+    before = str(payload.get("before", "")).strip()
+    top = payload.get("top", 24)
+
+    try:
+        top_count = max(1, min(int(top), 100))
+    except (TypeError, ValueError):
+        top_count = 24
+
+    if not event_key:
+        return jsonify({"error": "event_key is required"}), 400
+    if not team_key:
+        return jsonify({"error": "team_key is required"}), 400
+    if not BIN_PATH.exists():
+        return jsonify({"error": "build/frc_prediction not found. Run cmake --build build first."}), 500
+
+    args = [
+        "--event", event_key,
+        "--picklist", team_key,
+        "--json",
+        "--top", str(top_count),
+        "--strategy", strategy
+    ]
+    if exclude:
+        args.extend(["--exclude", exclude])
+    if before:
+        args.extend(["--before", before])
+
+    result = run_cli(args)
+    if result.returncode != 0:
+        return cli_error_response("Failed to build picklist.", result)
+
+    try:
+        picklist = app.json.loads(result.stdout)
+    except ValueError:
+        return jsonify({"error": "Could not parse picklist output.",
+                        "stdout": result.stdout.strip()}), 500
+    return jsonify(picklist)
+
+
 def run_cli(args):
     return subprocess.run(
         [str(BIN_PATH), *args],
@@ -180,4 +226,4 @@ def collect_match_team_stats(event_key, phase, prediction, before=""):
     return {team: by_team[team] for team in teams if team in by_team}
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5001, debug=True)
