@@ -172,6 +172,46 @@ int test_cutoff_excludes_target_and_later_matches() {
     return failures;
 }
 
+int test_cutoff_orders_by_schedule_across_comp_levels() {
+    // The cutoff must use schedule order (comp level, set, match number), not
+    // timestamps. A qualification match always precedes a playoff match even if
+    // its match_number is larger, and the target playoff match plus anything
+    // later (a final) must never leak into the pre-target stats.
+    auto make_match = [](const std::string& level, int set_number, int number,
+                         const std::string& red, int red_score,
+                         const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", level},
+            {"set_number", set_number},
+            {"match_number", number},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(make_match("qm", 1, 70, "frcA", 100, "frcB", 50));
+    nlohmann::json target = make_match("sf", 1, 1, "frcA", 80, "frcC", 90);
+    matches.push_back(target);
+    matches.push_back(make_match("f", 1, 1, "frcA", 200, "frcD", 10));
+
+    std::map<std::string, TeamStats> stats =
+        compute_team_stats_before(matches, MatchFilter::QualificationPlusElimPlayed, target);
+
+    int failures = 0;
+    failures += expect_true(stats.count("frcA") == 1 && stats["frcA"].matches_played == 1,
+                            "the earlier qualification match must count even with a smaller level");
+    failures += expect_true(stats.count("frcA") == 1 && stats["frcA"].total_score == 100,
+                            "the target playoff match score must not leak into pre-target stats");
+    failures += expect_true(stats.count("frcC") == 0,
+                            "the target match's teams must not be counted from the target");
+    failures += expect_true(stats.count("frcD") == 0,
+                            "a later final must not be counted");
+    return failures;
+}
+
 int test_picklist_ranks_and_excludes() {
     auto qual_match = [](int number, const std::string& red, int red_score,
                          const std::string& blue, int blue_score) {
@@ -231,6 +271,59 @@ int test_picklist_ranks_and_excludes() {
         }
     }
     failures += expect_true(!strong_present, "excluded teams must not appear in the picklist");
+    return failures;
+}
+
+int test_picklist_before_cutoff_uses_schedule_order() {
+    // Regression guard: the picklist cutoff must follow schedule order, not
+    // timestamps. The target match (and anything later) carries misleadingly
+    // small time fields, while the earlier matches carry larger ones. A
+    // timestamp-based cutoff would wrongly drop the real history and leak the
+    // target's inflated scores.
+    auto qual_match = [](int number, double time, const std::string& red, int red_score,
+                         const std::string& blue, int blue_score) {
+        return nlohmann::json{
+            {"comp_level", "qm"},
+            {"set_number", 1},
+            {"match_number", number},
+            {"time", time},
+            {"alliances", {
+                {"red", {{"team_keys", {red}}, {"score", red_score}}},
+                {"blue", {{"team_keys", {blue}}, {"score", blue_score}}}
+            }}
+        };
+    };
+
+    nlohmann::json matches = nlohmann::json::array();
+    matches.push_back(qual_match(1, 500.0, "frcSelf", 70, "frcCand", 50));
+    matches.push_back(qual_match(2, 600.0, "frcSelf", 75, "frcCand", 60));
+    // Target match has an earlier timestamp but a later schedule position; its
+    // huge scores must never enter the pre-target picklist.
+    nlohmann::json target = qual_match(3, 100.0, "frcSelf", 80, "frcCand", 1000);
+    matches.push_back(target);
+    matches.push_back(qual_match(4, 50.0, "frcSelf", 85, "frcCand", 2000));
+
+    PicklistWeights weights;
+    PicklistSummary picklist =
+        compute_picklist(matches, MatchFilter::QualificationOnly, target, {}, weights, 6, "frcSelf");
+
+    int failures = 0;
+    failures += expect_true(picklist.self_team_key == "frcSelf"
+                                && picklist.self_performance.matches_played == 2,
+                            "only matches scheduled before the target should anchor self performance");
+    failures += expect_true(almost_equal(picklist.self_performance.average_score, 72.5),
+                            "self average must exclude the target match score");
+
+    const PicklistEntry* cand = nullptr;
+    for (const auto& entry : picklist.entries) {
+        if (entry.team_key == "frcCand") {
+            cand = &entry;
+        }
+    }
+    failures += expect_true(cand != nullptr && cand->matches == 2,
+                            "the candidate should only carry its two pre-target matches");
+    failures += expect_true(cand != nullptr && almost_equal(cand->average_score, 55.0),
+                            "the target and later spikes must not leak into the candidate average");
     return failures;
 }
 
@@ -366,7 +459,9 @@ int main() {
     failures += test_event_adjustment_changes_prediction();
     failures += test_total_uses_scheduled_team_count();
     failures += test_cutoff_excludes_target_and_later_matches();
+    failures += test_cutoff_orders_by_schedule_across_comp_levels();
     failures += test_picklist_ranks_and_excludes();
+    failures += test_picklist_before_cutoff_uses_schedule_order();
     failures += test_opr_recovers_individual_contributions();
     failures += test_opr_cutoff_excludes_target_and_later_matches();
     failures += test_predict_match_uses_opr_when_supplied();
