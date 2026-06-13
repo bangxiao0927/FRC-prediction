@@ -524,12 +524,27 @@ int main(int argc, char** argv) {
             compute_team_roles(matches, MatchFilter::AllPlayed);
         const std::map<std::string, TeamStats> stats =
             compute_team_stats(matches, MatchFilter::AllPlayed);
-        double opr_total = 0.0;
-        for (const auto& entry : oprs) {
-            opr_total += entry.second;
+
+        // Score the alliance with the SAME model the match predictor uses, so the
+        // headline predicted_score and the --vs win probability never disagree.
+        // OPR mode: contribution is each team's OPR, baseline is the mean OPR.
+        // Legacy mode: contribution is each team's average alliance score, baseline
+        // is the event average (matching predict_match's legacy path).
+        std::map<std::string, double> contribution;
+        double baseline_score = 0.0;
+        if (config.use_opr) {
+            contribution = oprs;
+            double opr_total = 0.0;
+            for (const auto& entry : oprs) {
+                opr_total += entry.second;
+            }
+            baseline_score = oprs.empty() ? 0.0 : opr_total / static_cast<double>(oprs.size());
+        } else {
+            for (const auto& entry : stats) {
+                contribution[entry.first] = entry.second.average_score;
+            }
+            baseline_score = compute_event_average_score(stats);
         }
-        const double baseline_opr =
-            oprs.empty() ? 0.0 : opr_total / static_cast<double>(oprs.size());
 
         const std::vector<std::string> alliance = parse_team_list(alliance_arg);
         if (alliance.empty()) {
@@ -537,14 +552,14 @@ int main(int argc, char** argv) {
             return 1;
         }
         const AllianceEvaluation red_eval =
-            evaluate_alliance(alliance, oprs, roles, baseline_opr);
+            evaluate_alliance(alliance, contribution, roles, baseline_score);
 
         const std::vector<std::string> opponent = parse_team_list(alliance_vs_arg);
         const bool has_vs = !opponent.empty();
         AllianceEvaluation blue_eval;
         MatchPrediction matchup;
         if (has_vs) {
-            blue_eval = evaluate_alliance(opponent, oprs, roles, baseline_opr);
+            blue_eval = evaluate_alliance(opponent, contribution, roles, baseline_score);
             // Reuse the match predictor by synthesizing a red-vs-blue match.
             nlohmann::json synthetic = {
                 {"alliances", {
@@ -566,6 +581,7 @@ int main(int argc, char** argv) {
                 {"teleop", e.teleop_total},
                 {"endgame", e.endgame_total},
                 {"best_defense", e.best_defense},
+                {"has_defense_data", e.has_defense_data},
                 {"role_diversity", e.role_diversity},
                 {"has_defender", e.has_defender},
                 {"endgame_specialists", e.endgame_specialists},
@@ -600,7 +616,13 @@ int main(int argc, char** argv) {
                 std::cout << "  auto=" << e.auto_total
                           << " teleop=" << e.teleop_total
                           << " endgame=" << e.endgame_total
-                          << " best_defense=" << e.best_defense << "\n";
+                          << " best_defense=";
+                if (e.has_defense_data) {
+                    std::cout << e.best_defense;
+                } else {
+                    std::cout << "n/a";
+                }
+                std::cout << "\n";
                 std::cout << "  roles=" << e.role_diversity
                           << " (" << e.note << ")\n";
             };

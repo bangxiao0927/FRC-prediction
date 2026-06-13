@@ -18,6 +18,7 @@ struct AllianceEvaluation {
     double teleop_total = 0.0;
     double endgame_total = 0.0;
     double best_defense = 0.0;      // lowest member DPR (the alliance's best defender)
+    bool has_defense_data = false;  // false when no member had a role/DPR profile
     int role_diversity = 0;         // distinct primary roles among members
     bool has_defender = false;
     int endgame_specialists = 0;

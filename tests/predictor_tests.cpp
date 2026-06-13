@@ -695,6 +695,22 @@ int test_synergy_rewards_role_diversity() {
     return failures;
 }
 
+int test_synergy_unknown_lineup_has_no_defense_data() {
+    // None of the picks have a role profile, so best_defense must not masquerade
+    // as an unbeatable (DPR 0) defender.
+    const std::map<std::string, double> oprs = {{"frcA", 30.0}};
+    const std::map<std::string, TeamRole> roles;  // empty: no DPR for anyone
+    AllianceEvaluation eval =
+        evaluate_alliance({"frcX", "frcY"}, oprs, roles, 20.0);
+
+    int failures = 0;
+    failures += expect_true(!eval.has_defense_data,
+                            "a lineup with no role data should report no defense data");
+    failures += expect_true(!eval.has_defender,
+                            "a lineup with no role data should not claim a defender");
+    return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -715,5 +731,6 @@ int main() {
     failures += test_roles_cutoff_no_leakage();
     failures += test_synergy_predicted_score_and_imputation();
     failures += test_synergy_rewards_role_diversity();
+    failures += test_synergy_unknown_lineup_has_no_defense_data();
     return failures;
 }
