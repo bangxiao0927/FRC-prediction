@@ -32,9 +32,12 @@ const allianceVs = document.getElementById("allianceVs");
 const evalAllianceButton = document.getElementById("evalAlliance");
 const allianceStatus = document.getElementById("allianceStatus");
 const allianceResult = document.getElementById("allianceResult");
+const allianceChartBox = document.getElementById("allianceChartBox");
 
 let chart;
 let picklistChart;
+let rolesChart;
+let allianceChart;
 let autoTimer = null;
 let isBusy = false;
 
@@ -565,6 +568,39 @@ function renderRolesNote(roles) {
   rolesNote.hidden = note === "";
 }
 
+function renderRolesChart(roles) {
+  if (typeof Chart === "undefined") {
+    return;
+  }
+  // Top teams by offense, with their phase contributions stacked so you can see
+  // where each robot's output comes from.
+  const top = roles.slice(0, 15);
+  const labels = top.map((role) => role.team_key);
+  const phase = (key) => top.map((role) => Number(role[key]) || 0);
+
+  const ctx = document.getElementById("rolesChart").getContext("2d");
+  if (rolesChart) {
+    rolesChart.destroy();
+  }
+  rolesChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Auto", data: phase("auto"), backgroundColor: "rgba(37, 99, 235, 0.8)" },
+        { label: "Teleop", data: phase("teleop"), backgroundColor: "rgba(16, 185, 129, 0.8)" },
+        { label: "Endgame", data: phase("endgame"), backgroundColor: "rgba(109, 40, 217, 0.8)" }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+    }
+  });
+}
+
 async function buildRoles() {
   clearError();
   rolesStatus.textContent = "Computing...";
@@ -579,6 +615,7 @@ async function buildRoles() {
     const roles = result.roles || [];
     renderRolesTable(roles);
     renderRolesNote(roles);
+    renderRolesChart(roles);
     rolesStatus.textContent = `${roles.length} teams · ${result.phase}`;
   } catch (error) {
     showError(error.message);
@@ -636,6 +673,39 @@ function renderAlliance(result) {
   }
   allianceResult.innerHTML = `<div class="alliance-cards">${cards.join("")}</div>${matchup}`;
   allianceResult.hidden = false;
+  renderAllianceChart(result);
+}
+
+function renderAllianceChart(result) {
+  if (typeof Chart === "undefined" || !allianceChartBox) {
+    return;
+  }
+  // Compare the alliance (and optional opponent) across scoring phases.
+  const labels = ["Auto", "Teleop", "Endgame"];
+  const phaseData = (evaluation) =>
+    evaluation ? [Number(evaluation.auto) || 0, Number(evaluation.teleop) || 0, Number(evaluation.endgame) || 0] : null;
+  const datasets = [
+    { label: "Alliance", data: phaseData(result.alliance), backgroundColor: "rgba(220, 38, 38, 0.8)" }
+  ];
+  if (result.opponent) {
+    datasets.push({ label: "Opponent", data: phaseData(result.opponent), backgroundColor: "rgba(37, 99, 235, 0.8)" });
+  }
+
+  const ctx = document.getElementById("allianceChart").getContext("2d");
+  if (allianceChart) {
+    allianceChart.destroy();
+  }
+  allianceChart = new Chart(ctx, {
+    type: "bar",
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+  allianceChartBox.hidden = false;
 }
 
 async function evaluateAlliance() {
