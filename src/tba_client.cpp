@@ -30,6 +30,10 @@ nlohmann::json TbaClient::get_event_teams(const std::string& event_key) {
     return get_json("/event/" + event_key + "/teams");
 }
 
+nlohmann::json TbaClient::get_team_matches_year(const std::string& team_key, int year) {
+    return get_json("/team/" + team_key + "/matches/" + std::to_string(year));
+}
+
 nlohmann::json TbaClient::get_json(const std::string& path) {
     if (auth_key_.empty()) {
         std::cerr << "Missing TBA API key.\n";

@@ -18,9 +18,26 @@ const buildPicklistButton = document.getElementById("buildPicklist");
 const picklistStatus = document.getElementById("picklistStatus");
 const picklistTableBody = document.querySelector("#picklistTable tbody");
 const picklistSelfLabel = document.getElementById("picklistSelf");
+const useHistoryToggle = document.getElementById("useHistory");
+const historyTeamsInput = document.getElementById("historyTeams");
+const historyBadge = document.getElementById("historyBadge");
+const rolesPhase = document.getElementById("rolesPhase");
+const rolesTop = document.getElementById("rolesTop");
+const buildRolesButton = document.getElementById("buildRoles");
+const rolesStatus = document.getElementById("rolesStatus");
+const rolesNote = document.getElementById("rolesNote");
+const rolesTableBody = document.querySelector("#rolesTable tbody");
+const allianceTeams = document.getElementById("allianceTeams");
+const allianceVs = document.getElementById("allianceVs");
+const evalAllianceButton = document.getElementById("evalAlliance");
+const allianceStatus = document.getElementById("allianceStatus");
+const allianceResult = document.getElementById("allianceResult");
+const allianceChartBox = document.getElementById("allianceChartBox");
 
 let chart;
 let picklistChart;
+let rolesChart;
+let allianceChart;
 let autoTimer = null;
 let isBusy = false;
 
@@ -263,6 +280,17 @@ function renderPrediction(prediction) {
   document.getElementById("blueWin").textContent = formatPercent(blueWin);
   document.getElementById("matchLabel").textContent = prediction.match_key || "--";
 
+  // History badge: show whether the cross-event history blend was applied and to
+  // which robots (empty list = all match teams).
+  if (prediction.model_uses_history) {
+    const teams = prediction.history_teams || [];
+    historyBadge.textContent =
+      teams.length > 0 ? `history: ${teams.join(", ")}` : "history: all teams";
+    historyBadge.hidden = false;
+  } else {
+    historyBadge.hidden = true;
+  }
+
   // Favored side + predicted margin.
   const margin = Number(prediction.adjusted_score_diff_estimate) || 0;
   const redFavored = margin >= 0;
@@ -328,7 +356,9 @@ async function runPrediction() {
     const result = await postJson("/api/prediction/run", {
       event_key: eventInput.value,
       match_key: matchInput.value,
-      top: topInput.value
+      top: topInput.value,
+      use_history: useHistoryToggle.checked,
+      history_teams: historyTeamsInput.value
     });
 
     renderData(result.stats, result.prediction, result.match_team_stats || {});
@@ -498,5 +528,206 @@ async function buildPicklist() {
 }
 
 buildPicklistButton.addEventListener("click", buildPicklist);
+
+// ---- Team roles ----
+
+function roleBadgeClass(role) {
+  return `role-badge role-${role || "offense"}`;
+}
+
+function renderRolesTable(roles) {
+  rolesTableBody.innerHTML = "";
+  roles.forEach((role) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${role.team_key}</td>
+      <td><span class="${roleBadgeClass(role.primary_role)}">${role.primary_role}</span></td>
+      <td>${formatNumber(role.offense, 1)}</td>
+      <td>${formatNumber(role.auto, 1)}</td>
+      <td>${formatNumber(role.teleop, 1)}</td>
+      <td>${formatNumber(role.endgame, 1)}</td>
+      <td>${formatNumber(role.defense, 1)}</td>
+    `;
+    rolesTableBody.appendChild(tr);
+  });
+}
+
+function renderRolesNote(roles) {
+  const first = roles[0];
+  if (!first) {
+    rolesNote.hidden = true;
+    return;
+  }
+  let note = "";
+  if (!first.has_phase_data) {
+    note = "No score_breakdown for this event; phase ratings are 0.";
+  } else if (first.has_endgame_data === false) {
+    note = "This season's endgame breakdown is unknown; endgame is 0 and teleop still includes endgame points.";
+  }
+  rolesNote.textContent = note;
+  rolesNote.hidden = note === "";
+}
+
+function renderRolesChart(roles) {
+  if (typeof Chart === "undefined") {
+    return;
+  }
+  // Top teams by offense, with their phase contributions stacked so you can see
+  // where each robot's output comes from.
+  const top = roles.slice(0, 15);
+  const labels = top.map((role) => role.team_key);
+  const phase = (key) => top.map((role) => Number(role[key]) || 0);
+
+  const ctx = document.getElementById("rolesChart").getContext("2d");
+  if (rolesChart) {
+    rolesChart.destroy();
+  }
+  rolesChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Auto", data: phase("auto"), backgroundColor: "rgba(37, 99, 235, 0.8)" },
+        { label: "Teleop", data: phase("teleop"), backgroundColor: "rgba(16, 185, 129, 0.8)" },
+        { label: "Endgame", data: phase("endgame"), backgroundColor: "rgba(109, 40, 217, 0.8)" }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+    }
+  });
+}
+
+async function buildRoles() {
+  clearError();
+  rolesStatus.textContent = "Computing...";
+  buildRolesButton.disabled = true;
+  try {
+    const result = await postJson("/api/roles/run", {
+      event_key: eventInput.value,
+      before: matchInput.value,
+      phase: rolesPhase.value,
+      top: rolesTop.value
+    });
+    const roles = result.roles || [];
+    renderRolesTable(roles);
+    renderRolesNote(roles);
+    renderRolesChart(roles);
+    rolesStatus.textContent = `${roles.length} teams · ${result.phase}`;
+  } catch (error) {
+    showError(error.message);
+    rolesStatus.textContent = "Error";
+  } finally {
+    buildRolesButton.disabled = false;
+  }
+}
+
+buildRolesButton.addEventListener("click", buildRoles);
+
+// ---- Alliance evaluator ----
+
+function allianceCard(title, side, evaluation) {
+  if (!evaluation) {
+    return "";
+  }
+  const defense = evaluation.has_defense_data
+    ? formatNumber(evaluation.best_defense, 1)
+    : "n/a";
+  const stat = (label, value) =>
+    `<div class="alliance-stat"><span class="alliance-stat-value">${value}</span>` +
+    `<span class="alliance-stat-label">${label}</span></div>`;
+  return (
+    `<div class="alliance-card ${side}">` +
+    `<div class="alliance-card-head"><h3>${title}</h3>` +
+    `<span class="alliance-teams">${(evaluation.teams || []).join(", ")}</span></div>` +
+    `<div class="alliance-stats">` +
+    stat("Predicted", formatNumber(evaluation.predicted_score, 1)) +
+    stat("Synergy", formatNumber(evaluation.synergy_score, 1)) +
+    stat("Auto", formatNumber(evaluation.auto, 1)) +
+    stat("Teleop", formatNumber(evaluation.teleop, 1)) +
+    stat("Endgame", formatNumber(evaluation.endgame, 1)) +
+    stat("Best DPR", defense) +
+    `</div>` +
+    `<p class="alliance-note">${evaluation.note || ""}</p>` +
+    `</div>`
+  );
+}
+
+function renderAlliance(result) {
+  const cards = [allianceCard("Alliance", "red", result.alliance)];
+  if (result.opponent) {
+    cards.push(allianceCard("Opponent", "blue", result.opponent));
+  }
+  let matchup = "";
+  if (result.opponent && Number.isFinite(Number(result.red_win_probability))) {
+    const redWin = Number(result.red_win_probability);
+    const margin = Number(result.adjusted_score_diff) || 0;
+    const favored = margin >= 0 ? "Alliance" : "Opponent";
+    matchup =
+      `<p class="alliance-matchup">${favored} favored · ` +
+      `win prob ${formatPercent(redWin)} / ${formatPercent(result.blue_win_probability)} · ` +
+      `margin ${formatNumber(Math.abs(margin), 1)} pts</p>`;
+  }
+  allianceResult.innerHTML = `<div class="alliance-cards">${cards.join("")}</div>${matchup}`;
+  allianceResult.hidden = false;
+  renderAllianceChart(result);
+}
+
+function renderAllianceChart(result) {
+  if (typeof Chart === "undefined" || !allianceChartBox) {
+    return;
+  }
+  // Compare the alliance (and optional opponent) across scoring phases.
+  const labels = ["Auto", "Teleop", "Endgame"];
+  const phaseData = (evaluation) =>
+    evaluation ? [Number(evaluation.auto) || 0, Number(evaluation.teleop) || 0, Number(evaluation.endgame) || 0] : null;
+  const datasets = [
+    { label: "Alliance", data: phaseData(result.alliance), backgroundColor: "rgba(220, 38, 38, 0.8)" }
+  ];
+  if (result.opponent) {
+    datasets.push({ label: "Opponent", data: phaseData(result.opponent), backgroundColor: "rgba(37, 99, 235, 0.8)" });
+  }
+
+  const ctx = document.getElementById("allianceChart").getContext("2d");
+  if (allianceChart) {
+    allianceChart.destroy();
+  }
+  allianceChart = new Chart(ctx, {
+    type: "bar",
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+  allianceChartBox.hidden = false;
+}
+
+async function evaluateAlliance() {
+  clearError();
+  allianceStatus.textContent = "Evaluating...";
+  evalAllianceButton.disabled = true;
+  try {
+    const result = await postJson("/api/alliance/run", {
+      event_key: eventInput.value,
+      alliance: allianceTeams.value,
+      vs: allianceVs.value
+    });
+    renderAlliance(result);
+    allianceStatus.textContent = "Done";
+  } catch (error) {
+    showError(error.message);
+    allianceStatus.textContent = "Error";
+  } finally {
+    evalAllianceButton.disabled = false;
+  }
+}
+
+evalAllianceButton.addEventListener("click", evaluateAlliance);
 
 refreshFiles();

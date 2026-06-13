@@ -12,12 +12,14 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_executable(frc_prediction
     src/cache.cpp
     src/config.cpp
+    src/history.cpp
     src/main.cpp
     src/opr.cpp
     src/picklist.cpp
     src/predictor.cpp
     src/roles.cpp
     src/stats.cpp
+    src/synergy.cpp
     src/tba_client.cpp
 )
 
@@ -31,11 +33,13 @@ enable_testing()
 
 add_executable(frc_prediction_tests
     tests/predictor_tests.cpp
+    src/history.cpp
     src/opr.cpp
     src/picklist.cpp
     src/predictor.cpp
     src/roles.cpp
     src/stats.cpp
+    src/synergy.cpp
 )
 
 target_link_libraries(frc_prediction_tests

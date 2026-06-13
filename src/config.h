@@ -14,6 +14,9 @@ struct Config {
     // When true, predictions use the OPR contribution model instead of the
     // legacy "sum of alliance averages" proxy.
     bool use_opr = true;
+    // When true, predictions blend in a team's prior-season form (cross-event
+    // history). Off by default because it makes extra TBA calls per prediction.
+    bool use_history = false;
 };
 
 Config load_config();

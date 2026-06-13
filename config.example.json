@@ -7,5 +7,6 @@
   "score_diff_scale": 30.0,
   "sigmoid_scale": 1.0,
   "model_version": "baseline-v1",
-  "use_opr": true
+  "use_opr": true,
+  "use_history": false
 }

@@ -161,6 +161,53 @@ Each team is tagged a `primary` role (`offense`, `auto`, `endgame`, or
 are `0` and roles fall back to offense/defense. Respects `--phase`, `--before`,
 `--top`, and `--json`.
 
+### Alliance Evaluation (`--alliance` / `--vs`)
+
+`--alliance frcA,frcB,frcC` evaluates a hand-picked lineup as a what-if (using
+every played match at the event):
+
+- **predicted_score**: the OPR-based alliance estimate (sum of member OPRs).
+- **auto / teleop / endgame / best_defense**: the lineup's combined role profile.
+- **synergy_score**: the predicted score plus a transparent complementarity
+  adjustment — a bonus for covering more distinct roles and carrying a defender,
+  and a penalty for stacking redundant endgame specialists. The OPR estimate
+  stays the headline; synergy only breaks ties between similar lineups.
+
+Add `--vs frcD,frcE,frcF` to simulate a matchup: both lineups are evaluated and
+the match predictor returns a win probability and estimated margin. Works with
+`--json` for scripting.
+
+### Cross-event history (`--use-history`)
+
+By default a prediction only uses the current event's matches. Pass
+`--use-history` (or set `use_history: true` in `config.json`) to blend in each
+team's **prior-season form** from its other events that year:
+
+- For every team in the match, the CLI pulls its season matches and computes the
+  team's **scoring OPR at each *other* event** it played that year (restricted to
+  matches before this one), then averages those event OPRs weighted by matches
+  played. The scoring OPR sums the team's auto + teleop + endgame phase
+  contributions, so it **excludes foul points** (awarded for the opponent's
+  infractions, not a stable trait of the robot) and reflects the robot's own
+  output. Running a real OPR per event also deconvolves teammates. (It falls back
+  to total OPR for an event with no `score_breakdown`, and to a per-team score
+  average if no event OPR can be derived.) Everything is restricted to matches
+  played strictly *before* this match, so there is no future-data leakage, and a
+  team's first event of the season has no history.
+- The historical prior is blended with the team's current-event OPR, weighted by
+  how many current matches it has played: a team with `confidence_match_count`+
+  matches is trusted entirely on current form, while a team with no current data
+  falls back to its history. This sharpens early-event score estimates when the
+  current sample is thin.
+- Use `--history-teams frc254,frc1678` to blend history for **only those robots**
+  (every other team keeps its pure current-event OPR). Passing `--history-teams`
+  also turns history on, so you don't need `--use-history` as well.
+
+Note: the win-probability confidence shrink still scales with the *current*-event
+sample, so very early win probabilities stay conservative even though the score
+estimate already reflects history. `--use-history` makes extra TBA calls per
+team (cached), so it is opt-in.
+
 ### 3. Build
 
 ```bash
@@ -208,6 +255,15 @@ The dashboard provides:
 - A **Picklist** section: pick a strategy (balanced/offense/consistency), exclude
   already-picked teams, and build a ranked table + chart. It reuses the Event and
   Match fields (Match acts as an "as of" cutoff).
+- A **History** toggle next to Run: blend cross-event prior-season form into the
+  prediction, optionally scoped to specific robots via the **History teams** box
+  (empty = all). A badge on the prediction shows when history is applied.
+- A **Team Roles** section: per-team offense / auto / teleop / endgame and a
+  defensive DPR, with a primary-role badge (honors the Match field as an "as of"
+  cutoff and a phase filter).
+- An **Alliance Evaluator**: enter a hand-picked lineup (and an optional opponent)
+  to get OPR-based predicted + synergy scores, phase totals, best defender, and a
+  what-if matchup win probability.
 
 Examples:
 
@@ -221,6 +277,8 @@ Examples:
 ./build/frc_prediction --event 2024casj --stats --top 10 --stats-csv data/stats.csv
 ./build/frc_prediction --event 2024casj --roles --top 10
 ./build/frc_prediction --event 2024casj --roles --json --before qm40
+./build/frc_prediction --event 2024casj --alliance frc1678,frc604,frc841
+./build/frc_prediction --event 2024casj --alliance frc1678,frc604,frc841 --vs frc581,frc987,frc100
 ./build/frc_prediction --event 2024casj --predict 2024casj_qm1
 ./build/frc_prediction --event 2024casj --predict-upcoming
 ./build/frc_prediction --event 2024casj --predict-upcoming --json

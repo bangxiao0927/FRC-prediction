@@ -10,6 +10,8 @@
 #include "../src/picklist.h"
 #include "../src/opr.h"
 #include "../src/roles.h"
+#include "../src/synergy.h"
+#include "../src/history.h"
 
 namespace {
 
@@ -640,6 +642,141 @@ int test_roles_cutoff_no_leakage() {
     return failures;
 }
 
+int test_synergy_predicted_score_and_imputation() {
+    const std::map<std::string, double> oprs = {{"frcA", 30.0}, {"frcB", 20.0}};
+    const std::map<std::string, TeamRole> roles;  // no role data -> diversity 0
+    // frcX is unknown, so it should be imputed with the baseline OPR.
+    AllianceEvaluation eval =
+        evaluate_alliance({"frcA", "frcX"}, oprs, roles, 20.0);
+
+    int failures = 0;
+    failures += expect_true(almost_equal(eval.predicted_score, 50.0),
+                            "predicted score should sum member OPRs and impute unknowns");
+    return failures;
+}
+
+int test_synergy_rewards_role_diversity() {
+    // Two alliances with the SAME raw OPR sum (60) but different composition: a
+    // complementary trio should out-synergize a single-role stack.
+    const std::map<std::string, double> oprs = {
+        {"frcOff", 30.0}, {"frcEnd", 20.0}, {"frcDef", 10.0},
+        {"frcE1", 30.0}, {"frcE2", 20.0}, {"frcE3", 10.0}};
+    std::map<std::string, TeamRole> roles;
+    auto role = [](const std::string& primary) {
+        TeamRole r;
+        r.primary = primary;
+        return r;
+    };
+    roles["frcOff"] = role("offense");
+    roles["frcEnd"] = role("endgame");
+    roles["frcDef"] = role("defense");
+    roles["frcE1"] = role("endgame");
+    roles["frcE2"] = role("endgame");
+    roles["frcE3"] = role("endgame");
+
+    AllianceEvaluation diverse =
+        evaluate_alliance({"frcOff", "frcEnd", "frcDef"}, oprs, roles, 20.0);
+    AllianceEvaluation stacked =
+        evaluate_alliance({"frcE1", "frcE2", "frcE3"}, oprs, roles, 20.0);
+
+    int failures = 0;
+    failures += expect_true(almost_equal(diverse.predicted_score, stacked.predicted_score),
+                            "both alliances should share the same raw OPR sum");
+    failures += expect_true(diverse.role_diversity == 3 && diverse.has_defender,
+                            "the diverse alliance should cover three roles and a defender");
+    // diversity bonus 3*(3-1)=6 plus defender 2 = +8 -> 68.
+    failures += expect_true(almost_equal(diverse.synergy_score, 68.0),
+                            "complementary alliance synergy should add diversity + defender bonuses");
+    // single-role stack: endgame_specialists=3 -> penalty 4*(3-1)=8 -> 52.
+    failures += expect_true(stacked.endgame_specialists == 3
+                                && almost_equal(stacked.synergy_score, 52.0),
+                            "stacking endgame specialists should be penalized");
+    failures += expect_true(diverse.synergy_score > stacked.synergy_score,
+                            "synergy should favor complementary lineups over redundant ones");
+    return failures;
+}
+
+int test_history_form_excludes_current_event_and_future() {
+    auto season_match = [](const std::string& event, double time,
+                           const std::string& a, const std::string& b, int score) {
+        // The team of interest (a) shares a 2-team alliance, so per-team score is
+        // score / 2.
+        return nlohmann::json{
+            {"event_key", event},
+            {"time", time},
+            {"alliances", {
+                {"red", {{"team_keys", {a, b}}, {"score", score}}},
+                {"blue", {{"team_keys", {"frcX", "frcY"}}, {"score", 0}}}
+            }}
+        };
+    };
+
+    nlohmann::json season = nlohmann::json::array();
+    season.push_back(season_match("2024week1", 100.0, "frcMe", "frcP", 60));  // counts: 30
+    season.push_back(season_match("2024week2", 200.0, "frcMe", "frcQ", 80));  // counts: 40
+    season.push_back(season_match("2024casj", 300.0, "frcMe", "frcR", 200));  // current event: skip
+    season.push_back(season_match("2024week3", 400.0, "frcMe", "frcS", 999)); // after cutoff: skip
+
+    // Cutoff at time 350 excludes the future week3 match; current event excluded
+    // by key. Only week1 (30) and week2 (40) count -> mean 35.
+    TeamForm form = compute_team_form(season, "frcMe", "2024casj", 350.0);
+
+    int failures = 0;
+    failures += expect_true(form.matches == 2,
+                            "only prior, other-event matches should feed team form");
+    failures += expect_true(almost_equal(form.per_team_score, 35.0),
+                            "form should average per-team score and exclude current/future matches");
+    return failures;
+}
+
+int test_history_blend_weights_by_current_sample() {
+    const std::map<std::string, double> current = {{"frcFull", 40.0}, {"frcNew", 50.0}};
+    const std::map<std::string, double> history = {{"frcFull", 10.0}, {"frcNew", 20.0}};
+    std::map<std::string, TeamStats> stats;
+    stats["frcFull"] = TeamStats{6, 0, 0.0};  // plenty of current data -> trust current
+    stats["frcNew"] = TeamStats{0, 0, 0.0};   // no current data -> fall back to history
+
+    std::map<std::string, double> blended = blend_oprs(current, history, stats, 6);
+
+    int failures = 0;
+    failures += expect_true(almost_equal(blended["frcFull"], 40.0),
+                            "a team with full current data should keep its current OPR");
+    failures += expect_true(almost_equal(blended["frcNew"], 20.0),
+                            "a team with no current data should fall back to historical form");
+    return failures;
+}
+
+int test_history_blend_partial_sample_is_interpolated() {
+    const std::map<std::string, double> current = {{"frcT", 60.0}};
+    const std::map<std::string, double> history = {{"frcT", 20.0}};
+    std::map<std::string, TeamStats> stats;
+    stats["frcT"] = TeamStats{3, 0, 0.0};  // half of confidence_match_count=6
+
+    std::map<std::string, double> blended = blend_oprs(current, history, stats, 6);
+
+    int failures = 0;
+    // weight = 3/6 = 0.5 -> 0.5*60 + 0.5*20 = 40.
+    failures += expect_true(almost_equal(blended["frcT"], 40.0),
+                            "partial current data should interpolate between current and history");
+    return failures;
+}
+
+int test_synergy_unknown_lineup_has_no_defense_data() {
+    // None of the picks have a role profile, so best_defense must not masquerade
+    // as an unbeatable (DPR 0) defender.
+    const std::map<std::string, double> oprs = {{"frcA", 30.0}};
+    const std::map<std::string, TeamRole> roles;  // empty: no DPR for anyone
+    AllianceEvaluation eval =
+        evaluate_alliance({"frcX", "frcY"}, oprs, roles, 20.0);
+
+    int failures = 0;
+    failures += expect_true(!eval.has_defense_data,
+                            "a lineup with no role data should report no defense data");
+    failures += expect_true(!eval.has_defender,
+                            "a lineup with no role data should not claim a defender");
+    return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -658,5 +795,11 @@ int main() {
     failures += test_roles_unknown_endgame_key_is_flagged();
     failures += test_roles_defense_rating();
     failures += test_roles_cutoff_no_leakage();
+    failures += test_synergy_predicted_score_and_imputation();
+    failures += test_synergy_rewards_role_diversity();
+    failures += test_history_form_excludes_current_event_and_future();
+    failures += test_history_blend_weights_by_current_sample();
+    failures += test_history_blend_partial_sample_is_interpolated();
+    failures += test_synergy_unknown_lineup_has_no_defense_data();
     return failures;
 }

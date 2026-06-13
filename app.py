@@ -41,6 +41,8 @@ def api_run_prediction():
     event_key = str(payload.get("event_key", "")).strip()
     match_key = str(payload.get("match_key", "")).strip()
     top = payload.get("top", 20)
+    use_history = bool(payload.get("use_history", False))
+    history_teams = str(payload.get("history_teams", "")).strip()
 
     try:
         top_count = max(1, min(int(top), 100))
@@ -79,6 +81,12 @@ def api_run_prediction():
         predict_args.extend(["--predict", match_key])
     else:
         predict_args.append("--predict-upcoming")
+    # Cross-event history is opt-in (extra TBA calls). --history-teams scopes it
+    # to specific robots and implies --use-history on the CLI side.
+    if history_teams:
+        predict_args.extend(["--history-teams", history_teams])
+    elif use_history:
+        predict_args.append("--use-history")
 
     prediction_result = run_cli(predict_args)
     if prediction_result.returncode != 0:
@@ -147,6 +155,80 @@ def api_run_picklist():
         return jsonify({"error": "Could not parse picklist output.",
                         "stdout": result.stdout.strip()}), 500
     return jsonify(picklist)
+
+
+@app.post("/api/roles/run")
+def api_run_roles():
+    payload = request.get_json(silent=True) or {}
+    event_key = str(payload.get("event_key", "")).strip()
+    before = str(payload.get("before", "")).strip()
+    phase = str(payload.get("phase", "all")).strip() or "all"
+    top = payload.get("top", 30)
+
+    try:
+        top_count = max(1, min(int(top), 200))
+    except (TypeError, ValueError):
+        top_count = 30
+
+    if not event_key:
+        return jsonify({"error": "event_key is required"}), 400
+    if not BIN_PATH.exists():
+        return jsonify({"error": "build/frc_prediction not found. Run cmake --build build first."}), 500
+
+    args = [
+        "--event", event_key,
+        "--roles",
+        "--json",
+        "--top", str(top_count),
+        "--phase", phase
+    ]
+    if before:
+        args.extend(["--before", before])
+
+    result = run_cli(args)
+    if result.returncode != 0:
+        return cli_error_response("Failed to compute team roles.", result)
+
+    try:
+        roles = app.json.loads(result.stdout)
+    except ValueError:
+        return jsonify({"error": "Could not parse roles output.",
+                        "stdout": result.stdout.strip()}), 500
+    return jsonify({"event_key": event_key, "phase": phase, "roles": roles})
+
+
+@app.post("/api/alliance/run")
+def api_run_alliance():
+    payload = request.get_json(silent=True) or {}
+    event_key = str(payload.get("event_key", "")).strip()
+    alliance = str(payload.get("alliance", "")).strip()
+    vs = str(payload.get("vs", "")).strip()
+
+    if not event_key:
+        return jsonify({"error": "event_key is required"}), 400
+    if not alliance:
+        return jsonify({"error": "alliance is required (e.g. frc254,frc1678,frc604)"}), 400
+    if not BIN_PATH.exists():
+        return jsonify({"error": "build/frc_prediction not found. Run cmake --build build first."}), 500
+
+    args = [
+        "--event", event_key,
+        "--alliance", alliance,
+        "--json"
+    ]
+    if vs:
+        args.extend(["--vs", vs])
+
+    result = run_cli(args)
+    if result.returncode != 0:
+        return cli_error_response("Failed to evaluate alliance.", result)
+
+    try:
+        evaluation = app.json.loads(result.stdout)
+    except ValueError:
+        return jsonify({"error": "Could not parse alliance output.",
+                        "stdout": result.stdout.strip()}), 500
+    return jsonify(evaluation)
 
 
 def run_cli(args):
