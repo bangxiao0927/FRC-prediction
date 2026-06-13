@@ -16,6 +16,7 @@
 #include "config.h"
 #include "predictor.h"
 #include "opr.h"
+#include "roles.h"
 #include "picklist.h"
 #include "tba_client.h"
 #include "stats.h"
@@ -109,7 +110,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY] [--top N] [--json] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -263,6 +264,7 @@ int main(int argc, char** argv) {
     const bool show_teams = has_flag(args, "--teams");
     const bool show_stats = has_flag(args, "--stats");
     const bool show_stats_json = has_flag(args, "--stats-json");
+    const bool show_roles = has_flag(args, "--roles");
     const std::string predict_match_key = get_arg_value(args, "--predict");
     const bool predict_upcoming = has_flag(args, "--predict-upcoming");
     const bool output_json = has_flag(args, "--json");
@@ -281,7 +283,7 @@ int main(int argc, char** argv) {
     const int top_count = get_arg_int(args, "--top", 0);
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
-        && predict_match_key.empty() && !predict_upcoming && !evaluate_model && !show_picklist) {
+        && !show_roles && predict_match_key.empty() && !predict_upcoming && !evaluate_model && !show_picklist) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -397,6 +399,84 @@ int main(int argc, char** argv) {
                           << " total=" << team_stats.total_score
                           << " avg=" << team_stats.average_score
                           << "\n";
+            }
+        }
+    }
+
+    if (show_roles) {
+        nlohmann::json matches = client.get_event_matches(event_key);
+        if (matches.empty()) {
+            std::cerr << "Failed to fetch event matches for " << event_key << ".\n";
+            return 1;
+        }
+
+        MatchFilter roles_filter = MatchFilter::AllPlayed;
+        if (!resolve_phase_filter(phase_arg, MatchFilter::AllPlayed, roles_filter)) {
+            std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
+            return 1;
+        }
+        // --before lets the role profile reflect only matches before a target
+        // match, matching the rest of the dashboard's "as of this match" view.
+        nlohmann::json roles_target(nullptr);
+        if (!before_match_arg.empty()) {
+            roles_target = find_match_by_key(matches, event_key, before_match_arg);
+            if (roles_target.is_null()) {
+                std::cerr << "Match key not found for --before: "
+                          << normalize_match_key(event_key, before_match_arg) << "\n";
+                return 1;
+            }
+        }
+
+        std::map<std::string, TeamRole> roles =
+            compute_team_roles_before(matches, roles_filter, roles_target);
+        if (roles.empty() && before_match_arg.empty()) {
+            std::cerr << "No roles computed for " << event_key << ".\n";
+            return 1;
+        }
+
+        // Rank by offense (total OPR) for a stable, meaningful default order.
+        std::vector<std::pair<std::string, TeamRole>> ordered(roles.begin(), roles.end());
+        std::sort(ordered.begin(), ordered.end(), [](const auto& left, const auto& right) {
+            return left.second.offense > right.second.offense;
+        });
+        const int limit = top_count > 0 ? std::min(top_count, static_cast<int>(ordered.size()))
+                                        : static_cast<int>(ordered.size());
+
+        if (output_json) {
+            nlohmann::json output = nlohmann::json::array();
+            for (int index = 0; index < limit; ++index) {
+                const TeamRole& role = ordered[index].second;
+                output.push_back({
+                    {"team_key", ordered[index].first},
+                    {"primary_role", role.primary},
+                    {"offense", role.offense},
+                    {"auto", role.auto_phase},
+                    {"teleop", role.teleop_phase},
+                    {"endgame", role.endgame_phase},
+                    {"defense", role.defense},
+                    {"has_phase_data", role.has_phase_data},
+                    {"has_endgame_data", role.has_endgame_data}
+                });
+            }
+            std::cout << output.dump(2) << "\n";
+        } else {
+            std::cout << "Team Roles (" << event_key << "):\n";
+            for (int index = 0; index < limit; ++index) {
+                const TeamRole& role = ordered[index].second;
+                std::cout << "  " << ordered[index].first
+                          << " | role=" << role.primary
+                          << " offense=" << role.offense
+                          << " auto=" << role.auto_phase
+                          << " teleop=" << role.teleop_phase
+                          << " endgame=" << role.endgame_phase
+                          << " defense=" << role.defense
+                          << "\n";
+            }
+            if (!ordered.empty() && !ordered.front().second.has_phase_data) {
+                std::cout << "  (note: no score_breakdown available; phase ratings are 0)\n";
+            } else if (!ordered.empty() && !ordered.front().second.has_endgame_data) {
+                std::cout << "  (note: this season's endgame breakdown is unknown; "
+                             "endgame is 0 and teleop still includes endgame points)\n";
             }
         }
     }

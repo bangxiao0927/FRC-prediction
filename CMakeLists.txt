@@ -16,6 +16,7 @@ add_executable(frc_prediction
     src/opr.cpp
     src/picklist.cpp
     src/predictor.cpp
+    src/roles.cpp
     src/stats.cpp
     src/tba_client.cpp
 )
@@ -33,6 +34,7 @@ add_executable(frc_prediction_tests
     src/opr.cpp
     src/picklist.cpp
     src/predictor.cpp
+    src/roles.cpp
     src/stats.cpp
 )
 

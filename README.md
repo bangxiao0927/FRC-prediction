@@ -143,6 +143,24 @@ directly comparable to a real score. Set it to `false` to fall back to the legac
 "sum of alliance averages" proxy. The OPR solve honors the same `--before`
 schedule cutoff, so backtests never leak future matches.
 
+### Team Roles (`--roles`)
+
+`--roles` profiles each team's tactical contribution using the same
+least-squares machinery as OPR:
+
+- **offense**: total scoring contribution (OPR).
+- **auto / teleop / endgame**: per-phase contributions, decomposed from each
+  alliance's `score_breakdown` (they sum back to the offense, foul points aside).
+- **defense**: a Defensive Power Rating computed by attributing the *opponent's*
+  score to the alliance's teams, so a lower value means opponents scored less
+  with this team on the field.
+
+Each team is tagged a `primary` role (`offense`, `auto`, `endgame`, or
+`defense`) based on how far it stands out from the field. Phase ratings need
+`score_breakdown` data (available for recent seasons); without it, phase values
+are `0` and roles fall back to offense/defense. Respects `--phase`, `--before`,
+`--top`, and `--json`.
+
 ### 3. Build
 
 ```bash
@@ -201,6 +219,8 @@ Examples:
 ./build/frc_prediction --event 2024casj --stats --top 10
 ./build/frc_prediction --event 2024casj --stats-json --top 10
 ./build/frc_prediction --event 2024casj --stats --top 10 --stats-csv data/stats.csv
+./build/frc_prediction --event 2024casj --roles --top 10
+./build/frc_prediction --event 2024casj --roles --json --before qm40
 ./build/frc_prediction --event 2024casj --predict 2024casj_qm1
 ./build/frc_prediction --event 2024casj --predict-upcoming
 ./build/frc_prediction --event 2024casj --predict-upcoming --json
