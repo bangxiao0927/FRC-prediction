@@ -157,6 +157,27 @@ def api_run_picklist():
     return jsonify(picklist)
 
 
+@app.post("/api/event/options")
+def api_event_options():
+    """Teams and matches for an event, for the dashboard's dropdowns."""
+    payload = request.get_json(silent=True) or {}
+    event_key = str(payload.get("event_key", "")).strip()
+    if not event_key:
+        return jsonify({"error": "event_key is required"}), 400
+    if not BIN_PATH.exists():
+        return jsonify({"error": "build/frc_prediction not found. Run cmake --build build first."}), 500
+
+    result = run_cli(["--event", event_key, "--event-options", "--json"])
+    if result.returncode != 0:
+        return cli_error_response("Failed to load event options.", result)
+    try:
+        options = app.json.loads(result.stdout)
+    except ValueError:
+        return jsonify({"error": "Could not parse event options.",
+                        "stdout": result.stdout.strip()}), 500
+    return jsonify(options)
+
+
 @app.post("/api/roles/run")
 def api_run_roles():
     payload = request.get_json(silent=True) or {}

@@ -27,12 +27,22 @@ const buildRolesButton = document.getElementById("buildRoles");
 const rolesStatus = document.getElementById("rolesStatus");
 const rolesNote = document.getElementById("rolesNote");
 const rolesTableBody = document.querySelector("#rolesTable tbody");
-const allianceTeams = document.getElementById("allianceTeams");
-const allianceVs = document.getElementById("allianceVs");
 const evalAllianceButton = document.getElementById("evalAlliance");
 const allianceStatus = document.getElementById("allianceStatus");
 const allianceResult = document.getElementById("allianceResult");
 const allianceChartBox = document.getElementById("allianceChartBox");
+const loadEventButton = document.getElementById("loadEvent");
+const teamOptionsList = document.getElementById("teamOptions");
+const allianceTeamSelects = [
+  document.getElementById("allianceTeam1"),
+  document.getElementById("allianceTeam2"),
+  document.getElementById("allianceTeam3")
+];
+const vsTeamSelects = [
+  document.getElementById("vsTeam1"),
+  document.getElementById("vsTeam2"),
+  document.getElementById("vsTeam3")
+];
 
 let chart;
 let picklistChart;
@@ -121,6 +131,95 @@ function setBusy(busy) {
   isBusy = busy;
   runButton.disabled = busy;
   refreshButton.disabled = busy;
+}
+
+// ---- Event-driven dropdowns ----
+
+function joinTeamSelects(selects) {
+  return selects
+    .map((select) => (select ? select.value.trim() : ""))
+    .filter((value) => value !== "")
+    .join(",");
+}
+
+function teamOptionLabel(team) {
+  const number = team.team_number || team.key;
+  return team.nickname ? `${number} · ${team.nickname}` : String(number);
+}
+
+// Fill a <select> with team options, preserving the current value when possible.
+function fillTeamSelect(select, teams, placeholder) {
+  if (!select) {
+    return;
+  }
+  const previous = select.value;
+  select.innerHTML = "";
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = placeholder;
+  select.appendChild(blank);
+  teams.forEach((team) => {
+    const option = document.createElement("option");
+    option.value = team.key;
+    option.textContent = teamOptionLabel(team);
+    select.appendChild(option);
+  });
+  // Restore the prior selection if that team is still in the new event.
+  if (teams.some((team) => team.key === previous)) {
+    select.value = previous;
+  }
+}
+
+function fillMatchSelect(matches) {
+  const previous = matchInput.value;
+  matchInput.innerHTML = "";
+  const upcoming = document.createElement("option");
+  upcoming.value = "";
+  upcoming.textContent = "Upcoming / latest";
+  matchInput.appendChild(upcoming);
+  matches.forEach((match) => {
+    const option = document.createElement("option");
+    option.value = match.key;
+    option.textContent = match.played ? match.label : `${match.label} (upcoming)`;
+    matchInput.appendChild(option);
+  });
+  if (matches.some((match) => match.key === previous)) {
+    matchInput.value = previous;
+  }
+}
+
+async function loadEventOptions() {
+  const eventKey = eventInput.value.trim();
+  if (!eventKey) {
+    return;
+  }
+  statusLabel.textContent = "Loading event…";
+  try {
+    const options = await postJson("/api/event/options", { event_key: eventKey });
+    const teams = options.teams || [];
+    const matches = options.matches || [];
+
+    fillMatchSelect(matches);
+    fillTeamSelect(picklistTeam, teams, "Select team…");
+    allianceTeamSelects.forEach((select, index) =>
+      fillTeamSelect(select, teams, `Robot ${index + 1}`));
+    vsTeamSelects.forEach((select, index) =>
+      fillTeamSelect(select, teams, `Robot ${index + 1}`));
+
+    // Datalist suggestions for the remaining free-text team fields.
+    teamOptionsList.innerHTML = "";
+    teams.forEach((team) => {
+      const option = document.createElement("option");
+      option.value = team.key;
+      option.label = teamOptionLabel(team);
+      teamOptionsList.appendChild(option);
+    });
+
+    statusLabel.textContent = `Loaded ${teams.length} teams · ${matches.length} matches`;
+  } catch (error) {
+    // Non-fatal: the dashboard still works with manual entry / current files.
+    statusLabel.textContent = `Could not load event options: ${error.message}`;
+  }
 }
 
 function allianceColorOf(prediction, teamKey) {
@@ -377,14 +476,12 @@ async function runPrediction() {
 
 runButton.addEventListener("click", runPrediction);
 refreshButton.addEventListener("click", refreshFiles);
+loadEventButton.addEventListener("click", loadEventOptions);
+// Repopulate dropdowns whenever the event changes (Enter or blur fires change).
+eventInput.addEventListener("change", loadEventOptions);
 eventInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
-    runPrediction();
-  }
-});
-matchInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    runPrediction();
+    loadEventOptions();
   }
 });
 
@@ -715,8 +812,8 @@ async function evaluateAlliance() {
   try {
     const result = await postJson("/api/alliance/run", {
       event_key: eventInput.value,
-      alliance: allianceTeams.value,
-      vs: allianceVs.value
+      alliance: joinTeamSelects(allianceTeamSelects),
+      vs: joinTeamSelects(vsTeamSelects)
     });
     renderAlliance(result);
     allianceStatus.textContent = "Done";
@@ -730,4 +827,6 @@ async function evaluateAlliance() {
 
 evalAllianceButton.addEventListener("click", evaluateAlliance);
 
+// Populate the dropdowns for the default event, then load any existing files.
+loadEventOptions();
 refreshFiles();

@@ -293,6 +293,11 @@ The dashboard provides:
 - An **Alliance Evaluator**: enter a hand-picked lineup (and an optional opponent)
   to get OPR-based predicted + synergy scores, phase totals, best defender, and a
   what-if matchup win probability.
+- **Pick-from-event dropdowns**: enter an event and press **Load** (it also loads
+  on first open) to populate Match and team selectors from that event's real
+  schedule and roster — Match becomes a dropdown, the alliance/opponent are three
+  robot pickers each, the picklist team is a dropdown, and the free-text team
+  fields (exclude / history teams) get autocomplete suggestions.
 
 Examples:
 

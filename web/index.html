@@ -17,9 +17,12 @@
         Event
         <input id="eventKey" type="text" value="2024casj" autocomplete="off" />
       </label>
+      <button id="loadEvent" type="button">Load</button>
       <label>
         Match
-        <input id="matchKey" type="text" placeholder="upcoming · or 3 / qm3 / sf2m1" autocomplete="off" />
+        <select id="matchKey">
+          <option value="">Upcoming / latest</option>
+        </select>
       </label>
       <label>
         Top
@@ -33,7 +36,7 @@
       </label>
       <label>
         History teams
-        <input id="historyTeams" type="text" placeholder="all · or frc254, frc1678" autocomplete="off" />
+        <input id="historyTeams" type="text" list="teamOptions" placeholder="all · or frc254, frc1678" autocomplete="off" />
       </label>
       <label class="auto-refresh">
         <input id="autoRefresh" type="checkbox" />
@@ -50,6 +53,10 @@
       </label>
       <span id="status" role="status"></span>
     </section>
+
+    <!-- Shared team-key suggestions for the free-text team fields, filled in
+         from the loaded event. -->
+    <datalist id="teamOptions"></datalist>
 
     <section id="errorPanel" class="error-panel" hidden></section>
 
@@ -167,11 +174,19 @@
       <div class="controls" aria-label="Alliance controls">
         <label>
           Alliance
-          <input id="allianceTeams" type="text" placeholder="frc254, frc1678, frc604" autocomplete="off" />
+          <span class="team-trio">
+            <select id="allianceTeam1" class="team-select"><option value="">Robot 1</option></select>
+            <select id="allianceTeam2" class="team-select"><option value="">Robot 2</option></select>
+            <select id="allianceTeam3" class="team-select"><option value="">Robot 3</option></select>
+          </span>
         </label>
         <label>
           vs (optional)
-          <input id="allianceVs" type="text" placeholder="frc973, frc1323, frc8" autocomplete="off" />
+          <span class="team-trio">
+            <select id="vsTeam1" class="team-select"><option value="">Robot 1</option></select>
+            <select id="vsTeam2" class="team-select"><option value="">Robot 2</option></select>
+            <select id="vsTeam3" class="team-select"><option value="">Robot 3</option></select>
+          </span>
         </label>
         <button id="evalAlliance" type="button">Evaluate</button>
         <span id="allianceStatus" role="status"></span>
@@ -187,7 +202,9 @@
       <div class="controls" aria-label="Picklist controls">
         <label>
           Your Team
-          <input id="picklistTeam" type="text" placeholder="frc254" autocomplete="off" />
+          <select id="picklistTeam">
+            <option value="">Select team…</option>
+          </select>
         </label>
         <label>
           Strategy
@@ -199,7 +216,7 @@
         </label>
         <label>
           Exclude
-          <input id="picklistExclude" type="text" placeholder="e.g. 1678, 254" autocomplete="off" />
+          <input id="picklistExclude" type="text" list="teamOptions" placeholder="e.g. 1678, 254" autocomplete="off" />
         </label>
         <label>
           Top

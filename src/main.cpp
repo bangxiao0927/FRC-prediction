@@ -112,7 +112,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--history-teams TEAMS] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--event-options|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--history-teams TEAMS] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -564,6 +564,7 @@ int main(int argc, char** argv) {
     const bool show_matches = has_flag(args, "--matches");
     const bool show_rankings = has_flag(args, "--rankings");
     const bool show_teams = has_flag(args, "--teams");
+    const bool show_event_options = has_flag(args, "--event-options");
     const bool show_stats = has_flag(args, "--stats");
     const bool show_stats_json = has_flag(args, "--stats-json");
     const bool show_roles = has_flag(args, "--roles");
@@ -594,7 +595,7 @@ int main(int argc, char** argv) {
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
         && !show_roles && predict_match_key.empty() && !predict_upcoming && !evaluate_model && !show_picklist
-        && !show_alliance) {
+        && !show_alliance && !show_event_options) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -635,6 +636,83 @@ int main(int argc, char** argv) {
             return 1;
         }
         std::cout << "Event Teams (" << event_key << "): " << teams.dump(2) << "\n";
+    }
+
+    if (show_event_options) {
+        // Compact lists for the web dashboard's dropdowns: the event's teams and
+        // its matches (schedule-ordered, with friendly labels). Always JSON.
+        nlohmann::json teams = client.get_event_teams(event_key);
+        nlohmann::json matches = client.get_event_matches(event_key);
+
+        std::vector<std::pair<int, nlohmann::json>> team_rows;
+        if (teams.is_array()) {
+            for (const auto& team : teams) {
+                if (!team.contains("key") || !team["key"].is_string()) {
+                    continue;
+                }
+                const int number = team.value("team_number", 0);
+                team_rows.push_back({number, nlohmann::json{
+                    {"key", team["key"].get<std::string>()},
+                    {"team_number", number},
+                    {"nickname", team.value("nickname", "")}
+                }});
+            }
+        }
+        std::sort(team_rows.begin(), team_rows.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        nlohmann::json team_list = nlohmann::json::array();
+        for (const auto& row : team_rows) {
+            team_list.push_back(row.second);
+        }
+
+        auto match_label = [](const nlohmann::json& match) {
+            const std::string level = match.value("comp_level", "");
+            const int set_number = match.value("set_number", 0);
+            const int match_number = match.value("match_number", 0);
+            if (level == "qm") {
+                return std::string("Qual ") + std::to_string(match_number);
+            }
+            std::string label = level;
+            std::transform(label.begin(), label.end(), label.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+            return label + " " + std::to_string(set_number) + "-" + std::to_string(match_number);
+        };
+
+        // Tag each match with the schedule ordering key used elsewhere, then sort.
+        std::vector<std::pair<MatchOrderKey, nlohmann::json>> match_rows;
+        if (matches.is_array()) {
+            for (const auto& match : matches) {
+                if (!match.contains("key") || !match["key"].is_string()) {
+                    continue;
+                }
+                bool played = false;
+                if (match.contains("alliances") && match["alliances"].is_object()) {
+                    const auto& alliances = match["alliances"];
+                    const int red = alliances.contains("red") ? alliances["red"].value("score", -1) : -1;
+                    const int blue = alliances.contains("blue") ? alliances["blue"].value("score", -1) : -1;
+                    played = red >= 0 && blue >= 0;
+                }
+                match_rows.push_back({match_order_key(match), nlohmann::json{
+                    {"key", match["key"].get<std::string>()},
+                    {"label", match_label(match)},
+                    {"comp_level", match.value("comp_level", "")},
+                    {"played", played}
+                }});
+            }
+        }
+        std::sort(match_rows.begin(), match_rows.end(),
+                  [](const auto& a, const auto& b) { return match_order_before(a.first, b.first); });
+        nlohmann::json match_list = nlohmann::json::array();
+        for (const auto& row : match_rows) {
+            match_list.push_back(row.second);
+        }
+
+        nlohmann::json output = {
+            {"event_key", event_key},
+            {"teams", team_list},
+            {"matches", match_list}
+        };
+        std::cout << output.dump(2) << "\n";
     }
 
     if (show_stats || show_stats_json) {
