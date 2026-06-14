@@ -761,6 +761,54 @@ int test_history_blend_partial_sample_is_interpolated() {
     return failures;
 }
 
+int test_phase_blend_weights_each_phase_independently() {
+    // One team with a thin current sample (2 matches). Per-phase confidence:
+    // auto=4, teleop=8, endgame=6 -> weights 0.5, 0.25, 1/3.
+    const std::map<std::string, double> current_total = {{"frcT", 60.0}};
+    std::map<std::string, PhaseRatings> current_phases;
+    current_phases["frcT"] = PhaseRatings{20.0, 30.0, 10.0};   // sums to the 60 total
+    std::map<std::string, PhaseRatings> historical_phases;
+    historical_phases["frcT"] = PhaseRatings{10.0, 10.0, 4.0};
+    std::map<std::string, TeamStats> stats;
+    stats["frcT"] = TeamStats{2, 0, 0.0};
+
+    const PhaseConfidence conf{4, 8, 6};
+    std::map<std::string, double> blended =
+        blend_phase_oprs(current_total, current_phases, historical_phases, stats, conf);
+
+    // auto:    w=0.5  -> 0.5*20 + 0.5*10   = 15
+    // teleop:  w=0.25 -> 0.25*30 + 0.75*10 = 15
+    // endgame: w=1/3  -> (1/3)*10 + (2/3)*4 = 6
+    // remainder = 60 - (20+30+10) = 0 -> total = 36
+    int failures = 0;
+    failures += expect_true(almost_equal(blended["frcT"], 36.0),
+                            "each phase should blend with its own confidence weight");
+    return failures;
+}
+
+int test_phase_blend_preserves_foul_remainder() {
+    // Total OPR (65) exceeds the phase sum (60), e.g. 5 foul points. With zero
+    // current matches every phase falls entirely to history, but the 5-point
+    // non-phase remainder must carry through unblended.
+    const std::map<std::string, double> current_total = {{"frcT", 65.0}};
+    std::map<std::string, PhaseRatings> current_phases;
+    current_phases["frcT"] = PhaseRatings{20.0, 30.0, 10.0};
+    std::map<std::string, PhaseRatings> historical_phases;
+    historical_phases["frcT"] = PhaseRatings{8.0, 12.0, 5.0};  // sums to 25
+    std::map<std::string, TeamStats> stats;
+    stats["frcT"] = TeamStats{0, 0, 0.0};
+
+    const PhaseConfidence conf{4, 8, 6};
+    std::map<std::string, double> blended =
+        blend_phase_oprs(current_total, current_phases, historical_phases, stats, conf);
+
+    // remainder 5 + historical phase sum 25 = 30.
+    int failures = 0;
+    failures += expect_true(almost_equal(blended["frcT"], 30.0),
+                            "non-phase points (fouls) should pass through the per-phase blend");
+    return failures;
+}
+
 int test_synergy_unknown_lineup_has_no_defense_data() {
     // None of the picks have a role profile, so best_defense must not masquerade
     // as an unbeatable (DPR 0) defender.
@@ -800,6 +848,8 @@ int main() {
     failures += test_history_form_excludes_current_event_and_future();
     failures += test_history_blend_weights_by_current_sample();
     failures += test_history_blend_partial_sample_is_interpolated();
+    failures += test_phase_blend_weights_each_phase_independently();
+    failures += test_phase_blend_preserves_foul_remainder();
     failures += test_synergy_unknown_lineup_has_no_defense_data();
     return failures;
 }

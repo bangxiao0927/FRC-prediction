@@ -38,6 +38,9 @@ Config load_from_file(const std::string& path) {
     config.model_version = json.value("model_version", "baseline-v1");
     config.use_opr = json.value("use_opr", true);
     config.use_history = json.value("use_history", false);
+    config.history_auto_matches = json.value("history_auto_matches", 4);
+    config.history_teleop_matches = json.value("history_teleop_matches", 8);
+    config.history_endgame_matches = json.value("history_endgame_matches", 6);
     return config;
 }
 
@@ -73,6 +76,15 @@ Config load_config() {
     }
     if (merged.confidence_match_count <= 0) {
         merged.confidence_match_count = 6;
+    }
+    if (merged.history_auto_matches <= 0) {
+        merged.history_auto_matches = 4;
+    }
+    if (merged.history_teleop_matches <= 0) {
+        merged.history_teleop_matches = 8;
+    }
+    if (merged.history_endgame_matches <= 0) {
+        merged.history_endgame_matches = 6;
     }
     if (merged.score_diff_scale <= 0.0) {
         merged.score_diff_scale = 30.0;

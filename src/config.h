@@ -17,6 +17,11 @@ struct Config {
     // When true, predictions blend in a team's prior-season form (cross-event
     // history). Off by default because it makes extra TBA calls per prediction.
     bool use_history = false;
+    // Per-phase confidence: how many current-event matches a team needs before
+    // each phase is trusted entirely on current form (vs. cross-event history).
+    int history_auto_matches = 4;
+    int history_teleop_matches = 8;
+    int history_endgame_matches = 6;
 };
 
 Config load_config();
