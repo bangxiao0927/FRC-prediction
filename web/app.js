@@ -33,7 +33,6 @@ const allianceResult = document.getElementById("allianceResult");
 const allianceChartBox = document.getElementById("allianceChartBox");
 const loadEventButton = document.getElementById("loadEvent");
 const teamOptionsList = document.getElementById("teamOptions");
-const eventList = document.getElementById("eventList");
 const yearSelect = document.getElementById("yearSelect");
 const eventSelect = document.getElementById("eventSelect");
 const eventList = document.getElementById("eventList");
