@@ -538,6 +538,15 @@ tr:last-child td {
   color: #0f172a;
 }
 
+.team-trio {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.team-select {
+  min-width: 7rem;
+}
+
 @media (max-width: 820px) {
   header,
   section {
