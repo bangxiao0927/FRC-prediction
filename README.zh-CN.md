@@ -248,7 +248,7 @@ data/predictions/<match_key>.json
 
 ## 待办事项
 
-- [ ] UI: 优化 Dashboard 布局与响应式设计（间距、表格可读性、移动端适配）
+- [x] UI: 已优化 Dashboard 布局（Tab 导航、斑马纹表格、sticky 表头、响应式断点、Top 默认为赛事队伍数）
 
 ## 贡献与协作
 

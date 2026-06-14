@@ -395,8 +395,8 @@ This project is considered "done" for MVP when all of these are true:
 
 ## Open Issues
 
-- [ ] UI: optimize the dashboard layout and responsiveness (spacing, table
-  readability, and mobile-friendly view)
+- [x] UI: optimized dashboard layout (tab navigation, zebra-striped tables,
+  sticky headers, responsive breakpoints, Top defaults to event team count)
 
 ## Contributing
 

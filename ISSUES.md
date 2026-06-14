@@ -1,7 +1,7 @@
 # Issues
 
-- [ ] UI: optimize the dashboard layout and responsiveness (spacing, table
-  readability, and mobile-friendly view)
+- [x] UI: optimized dashboard layout (tab navigation, zebra-striped tables,
+  sticky headers, responsive breakpoints, Top defaults to event team count)
 - [x] Online evaluation: `--live` flag polls TBA continuously and tracks
   running MAE / winner accuracy with optional CSV output
 - [x] Model tuning: `--tune` flag runs grid search over sigmoid_scale,
