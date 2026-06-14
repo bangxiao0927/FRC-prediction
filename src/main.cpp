@@ -9,6 +9,8 @@
 
 #include <chrono>
 #include <ctime>
+#include <csignal>
+#include <thread>
 #include <filesystem>
 
 #include <nlohmann/json.hpp>
@@ -112,7 +114,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--event-options|--events-year YEAR|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--history-teams TEAMS] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--event-options|--events-year YEAR|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--live|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--history-teams TEAMS] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE] [--live-interval SECONDS]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -574,6 +576,8 @@ int main(int argc, char** argv) {
     const bool predict_upcoming = has_flag(args, "--predict-upcoming");
     const bool output_json = has_flag(args, "--json");
     const bool evaluate_model = has_flag(args, "--evaluate");
+    const bool live_mode = has_flag(args, "--live");
+    const int live_interval = get_arg_int(args, "--live-interval", 60);
     const std::string picklist_team_key = get_arg_value(args, "--picklist");
     const bool show_picklist = has_flag(args, "--picklist") || !picklist_team_key.empty();
     const std::string output_path = get_arg_value(args, "--output");
@@ -597,9 +601,15 @@ int main(int argc, char** argv) {
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
         && !show_roles && predict_match_key.empty() && !predict_upcoming && !evaluate_model && !show_picklist
-        && !show_alliance && !show_event_options && !show_events_year) {
+        && !show_alliance && !show_event_options && !show_events_year && !live_mode) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
+        return 1;
+    }
+
+    if (live_mode && evaluate_model) {
+        std::cerr << "--live and --evaluate are mutually exclusive. Use --live for "
+                     "continuous polling or --evaluate for a one-shot backtest.\n";
         return 1;
     }
 
@@ -1445,6 +1455,133 @@ int main(int argc, char** argv) {
                           << " (improvement " << (history_accuracy - accuracy) << ")\n";
             }
         }
+    }
+
+    if (live_mode) {
+        // Live evaluation: poll TBA continuously and track running accuracy.
+        // Use a fresh client with zero cache TTL so every poll fetches live data.
+        TbaClient live_client(config.tba_auth_key, config.cache_dir, 0);
+
+        // Catch Ctrl+C for a clean shutdown message.
+        std::signal(SIGINT, [](int) {
+            std::cerr << "\nInterrupted. Shutting down...\n";
+            std::exit(0);
+        });
+
+        std::cout << "Live evaluation for " << event_key << "\n";
+        std::cout << "Polling every " << live_interval << "s. Press Ctrl+C to stop.\n\n";
+
+        // CSV header if appending to file
+        bool live_csv_header_written = false;
+
+        int poll = 0;
+        while (true) {
+            poll++;
+            auto now = std::chrono::system_clock::now();
+            std::time_t now_t = std::chrono::system_clock::to_time_t(now);
+            char time_buf[16];
+            std::strftime(time_buf, sizeof(time_buf), "%H:%M:%S", std::localtime(&now_t));
+
+            nlohmann::json matches = live_client.get_event_matches(event_key);
+            if (matches.empty()) {
+                std::cout << "[" << time_buf << "] poll #" << poll
+                          << ": no matches fetched\n";
+                std::this_thread::sleep_for(std::chrono::seconds(live_interval));
+                continue;
+            }
+
+            int evaluated = 0;
+            int correct_winner = 0;
+            double total_abs_error = 0.0;
+
+            for (const auto& match : matches) {
+                if (!match.contains("alliances") || !match["alliances"].is_object()) {
+                    continue;
+                }
+                const nlohmann::json& alliances = match["alliances"];
+                if (!alliances.contains("red") || !alliances.contains("blue")) {
+                    continue;
+                }
+                int red_score = alliances["red"].value("score", -1);
+                int blue_score = alliances["blue"].value("score", -1);
+                if (red_score < 0 || blue_score < 0) {
+                    continue;
+                }
+
+                const std::string level = match.value("comp_level", "");
+                const bool is_qm = level == "qm";
+                const bool is_elim = level == "qf" || level == "sf" || level == "f";
+                if (phase_arg == "qm" && !is_qm) {
+                    continue;
+                }
+                if (phase_arg == "elim" && !is_elim) {
+                    continue;
+                }
+
+                const MatchFilter match_filter = is_qm
+                    ? MatchFilter::QualificationOnly
+                    : MatchFilter::QualificationPlusElimPlayed;
+                std::map<std::string, TeamStats> stats =
+                    compute_team_stats_before(matches, match_filter, match);
+
+                std::map<std::string, double> oprs = config.use_opr
+                    ? compute_team_oprs_before(matches, match_filter, match)
+                    : std::map<std::string, double>{};
+                MatchPrediction prediction = predict_match(
+                    match, stats, config.confidence_match_count,
+                    config.score_diff_scale, config.sigmoid_scale, oprs);
+
+                double predicted_diff = prediction.adjusted_score_diff_estimate;
+                double actual_diff = static_cast<double>(red_score - blue_score);
+                total_abs_error += std::abs(actual_diff - predicted_diff);
+
+                bool predicted_red = prediction.red_win_probability >= 0.5;
+                bool actual_red = actual_diff >= 0.0;
+                if (predicted_red == actual_red) {
+                    correct_winner += 1;
+                }
+                evaluated += 1;
+            }
+
+            if (evaluated == 0) {
+                std::cout << "[" << time_buf << "] poll #" << poll
+                          << ": 0 completed matches\n";
+                std::this_thread::sleep_for(std::chrono::seconds(live_interval));
+                continue;
+            }
+
+            double mae = total_abs_error / static_cast<double>(evaluated);
+            double accuracy = static_cast<double>(correct_winner) / static_cast<double>(evaluated);
+
+            std::cout << "[" << time_buf << "] poll #" << poll
+                      << " | matches=" << evaluated
+                      << " | mae=" << mae
+                      << " | acc=" << accuracy << std::endl;
+
+            if (!eval_csv_path.empty()) {
+                std::string timestamp = current_timestamp_iso8601();
+                bool write_header = !live_csv_header_written;
+                std::ofstream file(eval_csv_path, std::ios::app);
+                if (file) {
+                    if (write_header) {
+                        file << "timestamp,event_key,phase,model,poll,matches,mae,winner_accuracy\n";
+                        live_csv_header_written = true;
+                    }
+                    file << timestamp << ","
+                         << event_key << ","
+                         << (phase_arg.empty() ? "all" : phase_arg) << ","
+                         << "live,"
+                         << poll << ","
+                         << evaluated << ","
+                         << mae << ","
+                         << accuracy << "\n";
+                }
+            }
+
+            std::this_thread::sleep_for(std::chrono::seconds(live_interval));
+        }
+
+        return 0;
     }
 
     if (show_picklist) {
