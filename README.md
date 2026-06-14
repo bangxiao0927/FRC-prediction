@@ -245,6 +245,14 @@ cmake -B build -S . \
 cmake --build build
 ```
 
+Run the tests (CI runs both on every push/PR):
+
+```bash
+ctest --test-dir build --output-on-failure   # C++ unit tests
+pip install -r requirements-dev.txt
+python -m pytest tests/test_app.py -q          # Flask endpoint tests (offline, CLI mocked)
+```
+
 ### 4. Run
 
 ```bash
@@ -293,11 +301,11 @@ The dashboard provides:
 - An **Alliance Evaluator**: enter a hand-picked lineup (and an optional opponent)
   to get OPR-based predicted + synergy scores, phase totals, best defender, and a
   what-if matchup win probability.
-- **Pick-from-event dropdowns**: enter an event and press **Load** (it also loads
-  on first open) to populate Match and team selectors from that event's real
-  schedule and roster — Match becomes a dropdown, the alliance/opponent are three
-  robot pickers each, the picklist team is a dropdown, and the free-text team
-  fields (exclude / history teams) get autocomplete suggestions.
+- **Pick-from-event dropdowns**: choose a **Year** then an **Event** (populated
+  from TBA), and Match + team selectors fill from that event's real schedule and
+  roster — Match becomes a dropdown, the alliance/opponent are three robot pickers
+  each, the picklist team is a dropdown, and the free-text team fields (exclude /
+  history teams) get autocomplete suggestions. Controls disable while loading.
 
 Examples:
 

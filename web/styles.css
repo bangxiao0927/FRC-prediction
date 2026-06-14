@@ -547,6 +547,17 @@ tr:last-child td {
   min-width: 7rem;
 }
 
+/* Disabled / in-flight controls give clear feedback during async calls. */
+button:disabled,
+select:disabled,
+input:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+button.is-busy {
+  cursor: progress;
+}
+
 @media (max-width: 820px) {
   header,
   section {

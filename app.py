@@ -157,6 +157,30 @@ def api_run_picklist():
     return jsonify(picklist)
 
 
+@app.post("/api/events")
+def api_events_by_year():
+    """All events in a season, for the year -> event dropdown."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        year = int(payload.get("year", 0))
+    except (TypeError, ValueError):
+        year = 0
+    if year <= 0:
+        return jsonify({"error": "a positive year is required"}), 400
+    if not BIN_PATH.exists():
+        return jsonify({"error": "build/frc_prediction not found. Run cmake --build build first."}), 500
+
+    result = run_cli(["--events-year", str(year), "--json"])
+    if result.returncode != 0:
+        return cli_error_response("Failed to load events.", result)
+    try:
+        events = app.json.loads(result.stdout)
+    except ValueError:
+        return jsonify({"error": "Could not parse events.",
+                        "stdout": result.stdout.strip()}), 500
+    return jsonify(events)
+
+
 @app.post("/api/event/options")
 def api_event_options():
     """Teams and matches for an event, for the dashboard's dropdowns."""
