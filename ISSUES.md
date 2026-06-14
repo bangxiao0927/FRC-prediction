@@ -4,6 +4,6 @@
   readability, and mobile-friendly view)
 - [x] Online evaluation: `--live` flag polls TBA continuously and tracks
   running MAE / winner accuracy with optional CSV output
-- [ ] Model tuning: systematic hyperparameter search (sigmoid_scale,
-  score_diff_scale, history blend weights, confidence_match_count) with
-  backtest-driven scoring
+- [x] Model tuning: `--tune` flag runs grid search over sigmoid_scale,
+  score_diff_scale, and confidence_match_count; reports best by MAE and
+  winner accuracy with optional JSON output

@@ -114,7 +114,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--event-options|--events-year YEAR|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--live|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--history-teams TEAMS] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE] [--live-interval SECONDS]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--event-options|--events-year YEAR|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--live|--tune|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--history-teams TEAMS] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE] [--live-interval SECONDS] [--tune-json FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -578,6 +578,8 @@ int main(int argc, char** argv) {
     const bool evaluate_model = has_flag(args, "--evaluate");
     const bool live_mode = has_flag(args, "--live");
     const int live_interval = get_arg_int(args, "--live-interval", 60);
+    const bool tune_mode = has_flag(args, "--tune");
+    const std::string tune_json_path = get_arg_value(args, "--tune-json");
     const std::string picklist_team_key = get_arg_value(args, "--picklist");
     const bool show_picklist = has_flag(args, "--picklist") || !picklist_team_key.empty();
     const std::string output_path = get_arg_value(args, "--output");
@@ -601,7 +603,7 @@ int main(int argc, char** argv) {
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
         && !show_roles && predict_match_key.empty() && !predict_upcoming && !evaluate_model && !show_picklist
-        && !show_alliance && !show_event_options && !show_events_year && !live_mode) {
+        && !show_alliance && !show_event_options && !show_events_year && !live_mode && !tune_mode) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -610,6 +612,11 @@ int main(int argc, char** argv) {
     if (live_mode && evaluate_model) {
         std::cerr << "--live and --evaluate are mutually exclusive. Use --live for "
                      "continuous polling or --evaluate for a one-shot backtest.\n";
+        return 1;
+    }
+
+    if (tune_mode && (evaluate_model || live_mode)) {
+        std::cerr << "--tune is mutually exclusive with --evaluate and --live.\n";
         return 1;
     }
 
@@ -1579,6 +1586,187 @@ int main(int argc, char** argv) {
             }
 
             std::this_thread::sleep_for(std::chrono::seconds(live_interval));
+        }
+
+        return 0;
+    }
+
+    if (tune_mode) {
+        // Hyperparameter grid search: evaluate each combination via backtest
+        // and report the best by MAE.
+        nlohmann::json matches = client.get_event_matches(event_key);
+        if (matches.empty()) {
+            std::cerr << "Failed to fetch event matches for " << event_key << ".\n";
+            return 1;
+        }
+
+        // Phase filter validation (same as --evaluate)
+        if (!(phase_arg.empty() || phase_arg == "all" ||
+              phase_arg == "qm" || phase_arg == "elim")) {
+            std::cerr << "Unknown phase: " << phase_arg << ". Use qm, elim, or all.\n";
+            return 1;
+        }
+
+        // --- Step 1: pre-compute stats and OPRs for each match (expensive) ---
+        struct MatchSnapshot {
+            int red_score;
+            int blue_score;
+            bool predicted_red_from_diff(double diff) const {
+                return diff >= 0.0;
+            }
+            bool actual_red() const { return red_score >= blue_score; }
+        };
+        struct MatchPrecompute {
+            MatchSnapshot snap;
+            nlohmann::json alliances_json;  // minimal json for predict_match()
+            std::map<std::string, TeamStats> stats;
+            std::map<std::string, double> oprs;
+        };
+        std::vector<MatchPrecompute> precomputed;
+
+        for (const auto& match : matches) {
+            if (!match.contains("alliances") || !match["alliances"].is_object()) continue;
+            const nlohmann::json& alliances = match["alliances"];
+            if (!alliances.contains("red") || !alliances.contains("blue")) continue;
+            int red_score = alliances["red"].value("score", -1);
+            int blue_score = alliances["blue"].value("score", -1);
+            if (red_score < 0 || blue_score < 0) continue;
+
+            const std::string level = match.value("comp_level", "");
+            const bool is_qm = level == "qm";
+            const bool is_elim = level == "qf" || level == "sf" || level == "f";
+            if (phase_arg == "qm" && !is_qm) continue;
+            if (phase_arg == "elim" && !is_elim) continue;
+
+            const MatchFilter match_filter = is_qm
+                ? MatchFilter::QualificationOnly
+                : MatchFilter::QualificationPlusElimPlayed;
+
+            MatchPrecompute pre;
+            pre.snap.red_score = red_score;
+            pre.snap.blue_score = blue_score;
+            pre.alliances_json["alliances"] = alliances;
+            pre.stats = compute_team_stats_before(matches, match_filter, match);
+            pre.oprs = config.use_opr
+                ? compute_team_oprs_before(matches, match_filter, match)
+                : std::map<std::string, double>{};
+            precomputed.push_back(std::move(pre));
+        }
+
+        if (precomputed.empty()) {
+            std::cerr << "No completed matches to evaluate for " << event_key << ".\n";
+            return 1;
+        }
+
+        // --- Step 2: grid search ---
+        const std::vector<double> sigmoid_scales = {0.5, 1.0, 1.5, 2.0};
+        const std::vector<double> score_diff_scales = {20.0, 30.0, 40.0, 50.0};
+        const std::vector<int> confidence_counts = {4, 6, 8, 10};
+
+        struct TuneResult {
+            double sigmoid_scale;
+            double score_diff_scale;
+            int confidence_match_count;
+            int matches_evaluated;
+            double mae;
+            double winner_accuracy;
+        };
+        std::vector<TuneResult> results;
+
+        int total = static_cast<int>(sigmoid_scales.size() *
+                                     score_diff_scales.size() *
+                                     confidence_counts.size());
+        int done = 0;
+        std::cerr << "Tuning " << total << " parameter combinations...\n";
+
+        for (double ss : sigmoid_scales) {
+            for (double sd : score_diff_scales) {
+                for (int cc : confidence_counts) {
+                    double total_abs_error = 0.0;
+                    int correct_winner = 0;
+
+                    for (const auto& pre : precomputed) {
+                        MatchPrediction prediction = predict_match(
+                            pre.alliances_json,
+                            pre.stats, cc, sd, ss, pre.oprs);
+
+                        double predicted_diff = prediction.adjusted_score_diff_estimate;
+                        double actual_diff = static_cast<double>(
+                            pre.snap.red_score - pre.snap.blue_score);
+                        total_abs_error += std::abs(actual_diff - predicted_diff);
+
+                        bool predicted_red = prediction.red_win_probability >= 0.5;
+                        bool actual_red = pre.snap.actual_red();
+                        if (predicted_red == actual_red) correct_winner += 1;
+                    }
+
+                    int n = static_cast<int>(precomputed.size());
+                    results.push_back({
+                        ss, sd, cc, n,
+                        total_abs_error / static_cast<double>(n),
+                        static_cast<double>(correct_winner) / static_cast<double>(n)
+                    });
+
+                    done++;
+                    if (done % 8 == 0) {
+                        std::cerr << "  " << done << "/" << total << " done\n";
+                    }
+                }
+            }
+        }
+
+        // --- Step 3: report best results ---
+        std::sort(results.begin(), results.end(),
+                  [](const TuneResult& a, const TuneResult& b) { return a.mae < b.mae; });
+
+        std::cout << "\nTuning results for " << event_key
+                  << " (phase=" << (phase_arg.empty() ? "all" : phase_arg) << "):\n";
+        std::cout << "  matches=" << precomputed.size() << "\n\n";
+
+        // Top 10 by MAE
+        int top_n = std::min(10, static_cast<int>(results.size()));
+        for (int i = 0; i < top_n; ++i) {
+            const auto& r = results[i];
+            std::cout << "  #" << (i + 1)
+                      << " sigmoid=" << r.sigmoid_scale
+                      << " score_scale=" << r.score_diff_scale
+                      << " confidence=" << r.confidence_match_count
+                      << " | mae=" << r.mae
+                      << " acc=" << r.winner_accuracy << "\n";
+        }
+
+        // Best by winner accuracy
+        auto best_acc = std::max_element(results.begin(), results.end(),
+            [](const TuneResult& a, const TuneResult& b) {
+                return a.winner_accuracy < b.winner_accuracy;
+            });
+        std::cout << "\n  Best by winner accuracy:\n";
+        std::cout << "  sigmoid=" << best_acc->sigmoid_scale
+                  << " score_scale=" << best_acc->score_diff_scale
+                  << " confidence=" << best_acc->confidence_match_count
+                  << " | mae=" << best_acc->mae
+                  << " acc=" << best_acc->winner_accuracy << "\n";
+
+        if (!tune_json_path.empty()) {
+            nlohmann::json output;
+            output["event_key"] = event_key;
+            output["phase"] = phase_arg.empty() ? "all" : phase_arg;
+            output["matches"] = static_cast<int>(precomputed.size());
+            output["results"] = nlohmann::json::array();
+            for (const auto& r : results) {
+                output["results"].push_back({
+                    {"sigmoid_scale", r.sigmoid_scale},
+                    {"score_diff_scale", r.score_diff_scale},
+                    {"confidence_match_count", r.confidence_match_count},
+                    {"mae", r.mae},
+                    {"winner_accuracy", r.winner_accuracy}
+                });
+            }
+            if (!write_text_file(tune_json_path, output.dump(2))) {
+                std::cerr << "Failed to write tuning JSON to " << tune_json_path << ".\n";
+                return 1;
+            }
+            std::cout << "\nWrote tuning results to " << tune_json_path << "\n";
         }
 
         return 0;
