@@ -112,7 +112,7 @@ bool write_stats_csv(const std::string& path,
 }
 
 void print_usage() {
-    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--event-options|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--history-teams TEAMS] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
+    std::cout << "Usage: frc_prediction [--event EVENT_KEY] [--status|--matches|--rankings|--teams|--event-options|--events-year YEAR|--stats|--stats-json|--roles|--predict MATCH_KEY|--predict-upcoming|--evaluate|--picklist TEAM_KEY|--alliance TEAMS] [--vs TEAMS] [--top N] [--json] [--use-history] [--history-teams TEAMS] [--output FILE] [--stats-csv FILE] [--phase qm|elim|all] [--before MATCH_KEY] [--strategy balanced|offense|consistency] [--exclude TEAMS] [--picklist-csv FILE] [--eval-json FILE] [--eval-csv FILE]\n";
 }
 
 std::string default_prediction_output_path(const std::string& event_key, const std::string& match_key) {
@@ -565,6 +565,8 @@ int main(int argc, char** argv) {
     const bool show_rankings = has_flag(args, "--rankings");
     const bool show_teams = has_flag(args, "--teams");
     const bool show_event_options = has_flag(args, "--event-options");
+    const std::string events_year_arg = get_arg_value(args, "--events-year");
+    const bool show_events_year = !events_year_arg.empty();
     const bool show_stats = has_flag(args, "--stats");
     const bool show_stats_json = has_flag(args, "--stats-json");
     const bool show_roles = has_flag(args, "--roles");
@@ -595,7 +597,7 @@ int main(int argc, char** argv) {
 
     if (!show_status && !show_matches && !show_rankings && !show_teams && !show_stats && !show_stats_json
         && !show_roles && predict_match_key.empty() && !predict_upcoming && !evaluate_model && !show_picklist
-        && !show_alliance && !show_event_options) {
+        && !show_alliance && !show_event_options && !show_events_year) {
         print_usage();
         std::cout << "No output flag provided. Try --status or --matches.\n";
         return 1;
@@ -636,6 +638,46 @@ int main(int argc, char** argv) {
             return 1;
         }
         std::cout << "Event Teams (" << event_key << "): " << teams.dump(2) << "\n";
+    }
+
+    if (show_events_year) {
+        int year = 0;
+        try {
+            year = std::stoi(events_year_arg);
+        } catch (const std::exception&) {
+            year = 0;
+        }
+        if (year <= 0) {
+            std::cerr << "Invalid --events-year value: " << events_year_arg << "\n";
+            return 1;
+        }
+        nlohmann::json events = client.get_events_by_year(year);
+        // Sort by start date (then name) so the dropdown reads chronologically.
+        std::vector<std::pair<std::string, nlohmann::json>> rows;
+        if (events.is_array()) {
+            for (const auto& event : events) {
+                if (!event.contains("key") || !event["key"].is_string()) {
+                    continue;
+                }
+                const std::string start = event.value("start_date", "");
+                const std::string name = event.value("name", "");
+                rows.push_back({start + "\x01" + name, nlohmann::json{
+                    {"key", event["key"].get<std::string>()},
+                    {"name", name},
+                    {"start_date", start},
+                    {"week", event.contains("week") && event["week"].is_number()
+                                 ? event["week"].get<int>() : -1}
+                }});
+            }
+        }
+        std::sort(rows.begin(), rows.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        nlohmann::json event_list = nlohmann::json::array();
+        for (const auto& row : rows) {
+            event_list.push_back(row.second);
+        }
+        nlohmann::json output = {{"year", year}, {"events", event_list}};
+        std::cout << output.dump(2) << "\n";
     }
 
     if (show_event_options) {
