@@ -15,7 +15,7 @@
     <section class="controls" aria-label="Prediction controls">
       <label>
         Event
-        <input id="eventKey" type="text" value="2024casj" autocomplete="off" />
+        <input id="eventKey" type="text" value="2024casj" list="eventList" autocomplete="off" />
       </label>
       <button id="loadEvent" type="button">Load</button>
       <label>
@@ -57,6 +57,7 @@
     <!-- Shared team-key suggestions for the free-text team fields, filled in
          from the loaded event. -->
     <datalist id="teamOptions"></datalist>
+    <datalist id="eventList"></datalist>
 
     <section id="errorPanel" class="error-panel" hidden></section>
 

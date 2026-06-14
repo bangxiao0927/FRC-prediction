@@ -33,6 +33,7 @@ const allianceResult = document.getElementById("allianceResult");
 const allianceChartBox = document.getElementById("allianceChartBox");
 const loadEventButton = document.getElementById("loadEvent");
 const teamOptionsList = document.getElementById("teamOptions");
+const eventList = document.getElementById("eventList");
 const allianceTeamSelects = [
   document.getElementById("allianceTeam1"),
   document.getElementById("allianceTeam2"),
@@ -215,7 +216,23 @@ async function loadEventOptions() {
       teamOptionsList.appendChild(option);
     });
 
+    // Event search: seed the datalist with the loaded event so typing its key or
+    // name in the Event field brings it up as a suggestion. The event-options
+    // response doesn't include all events, so this is a minimal seed — the full
+    // event list comes from /api/events when the user changes the year.
+    if (!Array.from(eventList.querySelectorAll("option")).some(
+        (opt) => opt.value === eventKey || opt.getAttribute("data-key") === eventKey)) {
+      // Derive a short name from the event key: 2024casj -> "casj".
+      const shortName = eventKey.replace(/^\d{4}/, "");
+      const option = document.createElement("option");
+      option.value = eventKey;
+      option.setAttribute("data-key", eventKey);
+      option.label = `${eventKey} · ${shortName}`;
+      eventList.appendChild(option);
+    }
+
     statusLabel.textContent = `Loaded ${teams.length} teams · ${matches.length} matches`;
+    eventInput.dataset.lastLoaded = eventKey;
   } catch (error) {
     // Non-fatal: the dashboard still works with manual entry / current files.
     statusLabel.textContent = `Could not load event options: ${error.message}`;
@@ -477,6 +494,14 @@ async function runPrediction() {
 runButton.addEventListener("click", runPrediction);
 refreshButton.addEventListener("click", refreshFiles);
 loadEventButton.addEventListener("click", loadEventOptions);
+// When the user tabs out of or commits the Event field after typing (possibly
+// picking a datalist suggestion), load that event's options.
+eventInput.addEventListener("blur", () => {
+  const value = eventInput.value.trim();
+  if (value && value !== eventInput.dataset.lastLoaded) {
+    loadEventOptions();
+  }
+});
 // Repopulate dropdowns whenever the event changes (Enter or blur fires change).
 eventInput.addEventListener("change", loadEventOptions);
 eventInput.addEventListener("keydown", (event) => {
