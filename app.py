@@ -2,6 +2,8 @@ from pathlib import Path
 import csv
 import subprocess
 from datetime import datetime, timezone
+from functools import lru_cache
+from typing import Optional
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -14,6 +16,104 @@ STATS_PATH = DATA_DIR / "stats.csv"
 PREDICTION_PATH = DATA_DIR / "prediction.json"
 
 app = Flask(__name__, static_folder=str(WEB_DIR))
+
+
+def normalize_search_text(value: str) -> str:
+    return " ".join("".join(
+        ch.lower() if ch.isalnum() else " "
+        for ch in str(value or "")
+    ).split())
+
+
+def compact_search_text(value: str) -> str:
+    return normalize_search_text(value).replace(" ", "")
+
+
+def subsequence_penalty(query: str, text: str):
+    if not query or not text:
+        return None
+    cursor = 0
+    penalty = 0
+    for char in query:
+        position = text.find(char, cursor)
+        if position == -1:
+            return None
+        penalty += position - cursor
+        cursor = position + 1
+    return penalty + (len(text) - len(query))
+
+
+def score_event_match(event: dict, query: str):
+    normalized_query = normalize_search_text(query)
+    if not normalized_query:
+        return 1
+
+    compact_query = compact_search_text(query)
+    key = str(event.get("key", ""))
+    name = str(event.get("name", ""))
+    key_normalized = normalize_search_text(key)
+    name_normalized = normalize_search_text(name)
+    combined = f"{key_normalized} {name_normalized}".strip()
+    compact_key = compact_search_text(key)
+    compact_name = compact_search_text(name)
+    tokens = [token for token in normalized_query.split(" ") if token]
+
+    best_score = None
+
+    def consider(score):
+        nonlocal best_score
+        if score is None:
+            return
+        if best_score is None or score > best_score:
+            best_score = score
+
+    if compact_key == compact_query:
+        return 5000
+    if combined == normalized_query:
+        return 4900
+    if compact_key.startswith(compact_query):
+        consider(4600 - len(compact_key))
+    if name_normalized.startswith(normalized_query):
+        consider(4400 - len(name_normalized))
+
+    token_positions = [combined.find(token) for token in tokens]
+    if tokens and all(position != -1 for position in token_positions):
+        consider(4000 - sum(token_positions))
+
+    combined_index = combined.find(normalized_query)
+    if combined_index != -1:
+        consider(3600 - combined_index)
+
+    key_penalty = subsequence_penalty(compact_query, compact_key)
+    if key_penalty is not None:
+        consider(3200 - key_penalty)
+
+    name_penalty = subsequence_penalty(compact_query, compact_name)
+    if name_penalty is not None:
+        consider(2800 - name_penalty)
+
+    return best_score
+
+
+def search_years(year_hint: Optional[int] = None):
+    latest = datetime.now(timezone.utc).year
+    years = list(range(latest, 2009, -1))
+    if year_hint and year_hint in years:
+        years.remove(year_hint)
+        years.insert(0, year_hint)
+    return years
+
+
+@lru_cache(maxsize=32)
+def load_events_for_year(year: int):
+    result = run_cli(["--events-year", str(year), "--json"])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Failed to load events.")
+    try:
+        payload = app.json.loads(result.stdout)
+    except ValueError as exc:
+        raise ValueError(result.stdout.strip()) from exc
+    return payload.get("events", [])
 
 
 @app.get("/")
@@ -170,15 +270,68 @@ def api_events_by_year():
     if not BIN_PATH.exists():
         return jsonify({"error": "build/frc_prediction not found. Run cmake --build build first."}), 500
 
-    result = run_cli(["--events-year", str(year), "--json"])
-    if result.returncode != 0:
-        return cli_error_response("Failed to load events.", result)
     try:
-        events = app.json.loads(result.stdout)
-    except ValueError:
+        events = load_events_for_year(year)
+    except RuntimeError as exc:
+        return jsonify({"error": "Failed to load events.", "stderr": str(exc)}), 500
+    except ValueError as exc:
         return jsonify({"error": "Could not parse events.",
-                        "stdout": result.stdout.strip()}), 500
-    return jsonify(events)
+                        "stdout": str(exc)}), 500
+    return jsonify({"year": year, "events": events})
+
+
+@app.post("/api/events/search")
+def api_search_events():
+    """Fuzzy search events across seasons for the custom event combobox."""
+    payload = request.get_json(silent=True) or {}
+    query = str(payload.get("query", "")).strip()
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+
+    try:
+        limit = max(1, min(int(payload.get("limit", 8)), 20))
+    except (TypeError, ValueError):
+        limit = 8
+
+    try:
+        year_hint = int(payload.get("year_hint", 0) or 0)
+    except (TypeError, ValueError):
+        year_hint = 0
+
+    if not BIN_PATH.exists():
+        return jsonify({"error": "build/frc_prediction not found. Run cmake --build build first."}), 500
+
+    scored = []
+    errors = []
+    for year in search_years(year_hint or None):
+        try:
+            events = load_events_for_year(year)
+        except RuntimeError as exc:
+            errors.append({"year": year, "stderr": str(exc)})
+            continue
+        except ValueError as exc:
+            errors.append({"year": year, "stdout": str(exc)})
+            continue
+
+        for index, event in enumerate(events):
+            score = score_event_match(event, query)
+            if score is None:
+                continue
+            scored.append({
+                "score": score,
+                "index": index,
+                "event": {
+                    **event,
+                    "year": event.get("year", year)
+                }
+            })
+
+    scored.sort(key=lambda item: (-item["score"], -int(item["event"].get("year", 0)), item["index"]))
+    return jsonify({
+        "query": query,
+        "events": [item["event"] for item in scored[:limit]],
+        "errors": errors
+    })
 
 
 @app.post("/api/event/options")

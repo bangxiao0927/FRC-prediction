@@ -22,6 +22,7 @@ def client(monkeypatch, tmp_path):
     binary = tmp_path / "frc_prediction"
     binary.write_text("")
     monkeypatch.setattr(flask_app, "BIN_PATH", binary)
+    flask_app.load_events_for_year.cache_clear()
     flask_app.app.config.update(TESTING=True)
     return flask_app.app.test_client()
 
@@ -39,6 +40,35 @@ def test_events_returns_parsed_payload(client, monkeypatch):
 def test_events_rejects_bad_year(client):
     assert client.post("/api/events", json={"year": 0}).status_code == 400
     assert client.post("/api/events", json={"year": "abc"}).status_code == 400
+
+
+def test_events_search_returns_cross_year_matches(client, monkeypatch):
+    payloads = {
+        2024: {"year": 2024, "events": [
+            {"key": "2024casj", "name": "Silicon Valley Regional"},
+            {"key": "2024cabl", "name": "Central Valley Regional"},
+        ]},
+        2023: {"year": 2023, "events": [
+            {"key": "2023txcmp", "name": "Texas Championship"}
+        ]},
+    }
+
+    def fake_run(args):
+        year = int(args[1])
+        return fake_proc(json.dumps(payloads.get(year, {"year": year, "events": []})))
+
+    monkeypatch.setattr(flask_app, "run_cli", fake_run)
+    monkeypatch.setattr(flask_app, "search_years", lambda hint=None: [2024, 2023])
+
+    response = client.post("/api/events/search", json={"query": "tex champ", "year_hint": 2024, "limit": 5})
+    body = response.get_json()
+    assert response.status_code == 200
+    assert body["events"][0]["key"] == "2023txcmp"
+    assert body["events"][0]["year"] == 2023
+
+
+def test_events_search_requires_query(client):
+    assert client.post("/api/events/search", json={}).status_code == 400
 
 
 def test_event_options_returns_teams_and_matches(client, monkeypatch):
