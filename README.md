@@ -1,5 +1,7 @@
 # FRC Prediction
 
+[![CI](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/ci.yml/badge.svg)](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/ci.yml)
+
 FRC Prediction is a data-driven assistant for FRC events. The goal is to deliver real-time win probability predictions during qualification matches and provide picklist/alliance recommendations for elimination and alliance selection.
 
 **Languages:** English (default), [中文说明](README.zh-CN.md).
