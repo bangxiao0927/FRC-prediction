@@ -350,24 +350,27 @@ int count_team_matches(const nlohmann::json& matches, const std::string& team) {
     return count;
 }
 
-// A team's cross-event historical prior: at each OTHER event it played this
-// season (restricted to matches before the cutoff) we compute the team's
-// *scoring* OPR — the sum of its auto + teleop + endgame phase contributions —
-// and average those across events, weighted by matches played. Using the scoring
-// phases instead of the raw total OPR drops foul points, which are awarded for
-// the OPPONENT's infractions and are not a stable trait of the robot, so the
-// prior reflects the team's own output more cleanly. When an event has no
-// score_breakdown (phase data unavailable) we fall back to that event's total
-// OPR, and if no event OPR can be derived at all we fall back to the cruder
-// per-team score form. Returns false when the team has no usable prior.
-bool team_history_prior(TbaClient& client,
-                        const nlohmann::json& season,
-                        const std::string& team,
-                        const std::string& event_key,
-                        double before,
-                        double& prior_out) {
+// A team's cross-event historical prior, decomposed per phase. At each OTHER
+// event it played this season (restricted to matches before the cutoff) we
+// compute the team's auto / teleop / endgame OPR and its total OPR, then average
+// those across events weighted by matches played. The per-phase profile lets the
+// blender trust each phase independently; `scalar` is the foul-free scoring sum
+// (or total OPR when an event lacks a breakdown) used when phase data is absent.
+struct TeamHistory {
+    bool has_any = false;       // any usable prior at all
+    bool has_phase = false;     // a per-phase profile is available
+    PhaseRatings phases;        // averaged auto/teleop/endgame (valid if has_phase)
+    double scalar = 0.0;        // averaged scoring/total OPR (valid if has_any)
+};
+
+TeamHistory team_history(TbaClient& client,
+                         const nlohmann::json& season,
+                         const std::string& team,
+                         const std::string& event_key,
+                         double before) {
+    TeamHistory history;
     if (!season.is_array()) {
-        return false;
+        return history;
     }
     // Distinct other events where the team has at least one match before cutoff.
     std::set<std::string> other_events;
@@ -382,8 +385,10 @@ bool team_history_prior(TbaClient& client,
         }
     }
 
-    double weighted_sum = 0.0;
-    double weight_total = 0.0;
+    double scalar_sum = 0.0;
+    double scalar_weight = 0.0;
+    PhaseRatings phase_sum;
+    double phase_weight = 0.0;
     for (const auto& ev : other_events) {
         const nlohmann::json full = client.get_event_matches(ev);
         const nlohmann::json prior_matches = matches_before_time(full, before);
@@ -394,44 +399,61 @@ bool team_history_prior(TbaClient& client,
             continue;
         }
         const TeamRole& role = it->second;
-        const double scoring =
-            role.auto_phase + role.teleop_phase + role.endgame_phase;
-        // Prefer the foul-free scoring OPR; fall back to total OPR (offense) when
-        // this event has no usable phase breakdown.
-        const double value = (role.has_phase_data && scoring > 0.0) ? scoring : role.offense;
         const int weight = count_team_matches(prior_matches, team);
         if (weight <= 0) {
             continue;
         }
-        weighted_sum += value * static_cast<double>(weight);
-        weight_total += static_cast<double>(weight);
+        const double w = static_cast<double>(weight);
+        const double scoring = role.auto_phase + role.teleop_phase + role.endgame_phase;
+        // Prefer the foul-free scoring OPR; fall back to total OPR (offense) when
+        // this event has no usable phase breakdown.
+        const bool event_has_phase = role.has_phase_data && scoring > 0.0;
+        scalar_sum += (event_has_phase ? scoring : role.offense) * w;
+        scalar_weight += w;
+        if (event_has_phase) {
+            phase_sum.autonomous += role.auto_phase * w;
+            phase_sum.teleop += role.teleop_phase * w;
+            phase_sum.endgame += role.endgame_phase * w;
+            phase_weight += w;
+        }
     }
-    if (weight_total > 0.0) {
-        prior_out = weighted_sum / weight_total;
-        return true;
+
+    if (scalar_weight > 0.0) {
+        history.has_any = true;
+        history.scalar = scalar_sum / scalar_weight;
+        if (phase_weight > 0.0) {
+            history.has_phase = true;
+            history.phases.autonomous = phase_sum.autonomous / phase_weight;
+            history.phases.teleop = phase_sum.teleop / phase_weight;
+            history.phases.endgame = phase_sum.endgame / phase_weight;
+        }
+        return history;
     }
 
     // Fallback: the cruder per-team score form (still points-per-team scale).
     const TeamForm form = compute_team_form(season, team, event_key, before);
     if (form.matches > 0) {
-        prior_out = form.per_team_score;
-        return true;
+        history.has_any = true;
+        history.scalar = form.per_team_score;
     }
-    return false;
+    return history;
 }
 
-// Blend current-event OPR with each match team's prior-season form. Falls back to
-// the unblended OPRs when the year can't be derived or no history is available.
-// When `history_teams` is non-empty, only those teams get a historical prior;
-// every other team keeps its pure current-event OPR.
+// Blend current-event OPR with each match team's prior-season form. Where both a
+// current and a historical phase profile exist, blends per phase (each phase gets
+// its own confidence weight); otherwise blends the totals with a single weight.
+// Falls back to the unblended OPRs when the year can't be derived or no history is
+// available. When `history_teams` is non-empty, only those teams get history.
 std::map<std::string, double> blended_oprs_with_history(
     TbaClient& client,
     const nlohmann::json& match,
     const nlohmann::json& event_matches,
+    MatchFilter filter,
     const std::string& event_key,
     const std::map<std::string, double>& current_oprs,
     const std::map<std::string, TeamStats>& stats,
     int confidence_match_count,
+    const PhaseConfidence& phase_confidence,
     const std::set<std::string>& history_teams) {
     int year = 0;
     if (event_key.size() >= 4) {
@@ -455,22 +477,64 @@ std::map<std::string, double> blended_oprs_with_history(
         // No usable cutoff at all: skip history rather than risk future leakage.
         return current_oprs;
     }
-    std::map<std::string, double> priors;
+
+    // Current-event per-phase OPRs, using the same cutoff as the total OPR.
+    const std::map<std::string, TeamRole> current_roles =
+        compute_team_roles_before(event_matches, filter, match);
+    std::map<std::string, PhaseRatings> current_phases;
+    for (const auto& entry : current_roles) {
+        const TeamRole& role = entry.second;
+        if (role.has_phase_data) {
+            current_phases[entry.first] =
+                PhaseRatings{role.auto_phase, role.teleop_phase, role.endgame_phase};
+        }
+    }
+
+    std::map<std::string, PhaseRatings> historical_phases;  // teams with phase history
+    std::map<std::string, double> scalar_priors;            // teams with scalar-only history
     for (const auto& team : match_team_keys(match)) {
         // Optional filter: only blend history for the requested robots.
         if (!history_teams.empty() && history_teams.find(team) == history_teams.end()) {
             continue;
         }
         const nlohmann::json season = client.get_team_matches_year(team, year);
-        double prior = 0.0;
-        if (team_history_prior(client, season, team, event_key, before, prior)) {
-            priors[team] = prior;
+        const TeamHistory history = team_history(client, season, team, event_key, before);
+        if (!history.has_any) {
+            continue;
+        }
+        // Per-phase blend only when both sides have a phase profile.
+        if (history.has_phase && current_phases.count(team) > 0) {
+            historical_phases[team] = history.phases;
+        } else {
+            scalar_priors[team] = history.scalar;
         }
     }
-    if (priors.empty()) {
+    if (historical_phases.empty() && scalar_priors.empty()) {
         return current_oprs;
     }
-    return blend_oprs(current_oprs, priors, stats, confidence_match_count);
+
+    std::map<std::string, double> blended = current_oprs;
+    if (!historical_phases.empty()) {
+        const std::map<std::string, double> phase_blended = blend_phase_oprs(
+            current_oprs, current_phases, historical_phases, stats, phase_confidence);
+        for (const auto& team_entry : historical_phases) {
+            const auto it = phase_blended.find(team_entry.first);
+            if (it != phase_blended.end()) {
+                blended[it->first] = it->second;
+            }
+        }
+    }
+    if (!scalar_priors.empty()) {
+        const std::map<std::string, double> scalar_blended =
+            blend_oprs(current_oprs, scalar_priors, stats, confidence_match_count);
+        for (const auto& team_entry : scalar_priors) {
+            const auto it = scalar_blended.find(team_entry.first);
+            if (it != scalar_blended.end()) {
+                blended[it->first] = it->second;
+            }
+        }
+    }
+    return blended;
 }
 
 }  // namespace
@@ -965,8 +1029,13 @@ int main(int argc, char** argv) {
             : std::map<std::string, double>{};
         // Optionally blend in each team's prior-season form (cross-event history).
         if (config.use_opr && use_history) {
-            oprs = blended_oprs_with_history(client, match, matches, event_key, oprs, stats,
-                                             config.confidence_match_count, history_teams);
+            const PhaseConfidence phase_confidence{
+                config.history_auto_matches,
+                config.history_teleop_matches,
+                config.history_endgame_matches};
+            oprs = blended_oprs_with_history(client, match, matches, filter, event_key, oprs,
+                                             stats, config.confidence_match_count,
+                                             phase_confidence, history_teams);
         }
         MatchPrediction prediction = predict_match(
             match,

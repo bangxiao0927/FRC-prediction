@@ -194,11 +194,16 @@ team's **prior-season form** from its other events that year:
   average if no event OPR can be derived.) Everything is restricted to matches
   played strictly *before* this match, so there is no future-data leakage, and a
   team's first event of the season has no history.
-- The historical prior is blended with the team's current-event OPR, weighted by
-  how many current matches it has played: a team with `confidence_match_count`+
-  matches is trusted entirely on current form, while a team with no current data
-  falls back to its history. This sharpens early-event score estimates when the
-  current sample is thin.
+- The historical prior is blended with the team's current-event OPR **per phase**:
+  each of auto / teleop / endgame gets its own confidence weight, so a phase that
+  stabilizes quickly locks onto current form sooner than a noisier one. The counts
+  are configurable (`history_auto_matches` / `history_teleop_matches` /
+  `history_endgame_matches`, default 4 / 8 / 6) — a team at or above a phase's
+  count is trusted entirely on current form for that phase, while a team with no
+  current data falls back to history. Any non-phase points the OPR attributes
+  (e.g. fouls) pass through unblended. Teams without a usable phase breakdown fall
+  back to a single-weight blend of the total (`confidence_match_count`). This
+  sharpens early-event estimates when the current sample is thin.
 - Use `--history-teams frc254,frc1678` to blend history for **only those robots**
   (every other team keeps its pure current-event OPR). Passing `--history-teams`
   also turns history on, so you don't need `--use-history` as well.
