@@ -33,6 +33,8 @@ const allianceResult = document.getElementById("allianceResult");
 const allianceChartBox = document.getElementById("allianceChartBox");
 const loadEventButton = document.getElementById("loadEvent");
 const teamOptionsList = document.getElementById("teamOptions");
+const eventSearchBox = document.getElementById("eventSearchBox");
+const eventSuggestions = document.getElementById("eventSuggestions");
 const yearSelect = document.getElementById("yearSelect");
 const eventSelect = document.getElementById("eventSelect");
 const allianceTeamSelects = [
@@ -52,6 +54,13 @@ let rolesChart;
 let allianceChart;
 let autoTimer = null;
 let isBusy = false;
+let availableEvents = [];
+let remoteEvents = [];
+let visibleEventSuggestions = [];
+let activeEventSuggestion = -1;
+let eventSearchTimer = null;
+let eventSearchRequestId = 0;
+let isSearchingEvents = false;
 
 async function fetchText(url) {
   const response = await fetch(url);
@@ -149,6 +158,368 @@ function teamOptionLabel(team) {
   return team.nickname ? `${number} · ${team.nickname}` : String(number);
 }
 
+function eventOptionLabel(event) {
+  return `${event.key} · ${event.name}`;
+}
+
+function eventYearLabel(event) {
+  return event.year ? String(event.year) : "Current year";
+}
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function compactSearchText(value) {
+  return normalizeSearchText(value).replace(/\s+/g, "");
+}
+
+function subsequencePenalty(query, text) {
+  if (!query || !text) {
+    return null;
+  }
+  let cursor = 0;
+  let penalty = 0;
+  for (const char of query) {
+    const position = text.indexOf(char, cursor);
+    if (position === -1) {
+      return null;
+    }
+    penalty += position - cursor;
+    cursor = position + 1;
+  }
+  return penalty + (text.length - query.length);
+}
+
+function scoreEventMatch(event, query) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) {
+    return 1;
+  }
+
+  const compactQuery = compactSearchText(query);
+  const key = String(event.key || "");
+  const name = String(event.name || "");
+  const keyNormalized = normalizeSearchText(key);
+  const nameNormalized = normalizeSearchText(name);
+  const combined = `${keyNormalized} ${nameNormalized}`.trim();
+  const compactKey = compactSearchText(key);
+  const compactName = compactSearchText(name);
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+
+  let bestScore = null;
+  const consider = (score) => {
+    if (score === null) {
+      return;
+    }
+    if (bestScore === null || score > bestScore) {
+      bestScore = score;
+    }
+  };
+
+  if (compactKey === compactQuery) {
+    return 5000;
+  }
+  if (combined === normalizedQuery) {
+    return 4900;
+  }
+  if (compactKey.startsWith(compactQuery)) {
+    consider(4600 - compactKey.length);
+  }
+  if (nameNormalized.startsWith(normalizedQuery)) {
+    consider(4400 - nameNormalized.length);
+  }
+
+  const tokenPositions = tokens.map((token) => combined.indexOf(token));
+  if (tokens.length > 0 && tokenPositions.every((position) => position !== -1)) {
+    consider(4000 - tokenPositions.reduce((sum, position) => sum + position, 0));
+  }
+
+  const combinedIndex = combined.indexOf(normalizedQuery);
+  if (combinedIndex !== -1) {
+    consider(3600 - combinedIndex);
+  }
+
+  const keyPenalty = subsequencePenalty(compactQuery, compactKey);
+  if (keyPenalty !== null) {
+    consider(3200 - keyPenalty);
+  }
+
+  const namePenalty = subsequencePenalty(compactQuery, compactName);
+  if (namePenalty !== null) {
+    consider(2800 - namePenalty);
+  }
+
+  return bestScore;
+}
+
+function syncEventSelect(eventKey) {
+  if (Array.from(eventSelect.options).some((option) => option.value === eventKey)) {
+    eventSelect.value = eventKey;
+  } else {
+    eventSelect.value = "";
+  }
+}
+
+function hasLoadedEvent(eventKey) {
+  return availableEvents.some((event) => event.key === eventKey);
+}
+
+function uniqueEvents(events) {
+  const seen = new Set();
+  return events.filter((event) => {
+    if (!event || !event.key || seen.has(event.key)) {
+      return false;
+    }
+    seen.add(event.key);
+    return true;
+  });
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function highlightMatches(text, query) {
+  const tokens = normalizeSearchText(query)
+    .split(/\s+/)
+    .filter((token) => token.length > 0)
+    .sort((left, right) => right.length - left.length);
+
+  if (tokens.length === 0) {
+    return escapeHtml(text);
+  }
+
+  const pattern = tokens.map(escapeRegex).join("|");
+  if (!pattern) {
+    return escapeHtml(text);
+  }
+
+  const source = String(text || "");
+  const matches = [];
+  const regex = new RegExp(pattern, "ig");
+  let match;
+  while ((match = regex.exec(source)) !== null) {
+    matches.push({ start: match.index, end: match.index + match[0].length });
+  }
+  if (matches.length === 0) {
+    return escapeHtml(source);
+  }
+
+  matches.sort((left, right) => left.start - right.start || right.end - left.end);
+  const merged = [];
+  matches.forEach((current) => {
+    const previous = merged[merged.length - 1];
+    if (!previous || current.start > previous.end) {
+      merged.push(current);
+      return;
+    }
+    previous.end = Math.max(previous.end, current.end);
+  });
+
+  let cursor = 0;
+  let html = "";
+  merged.forEach((range) => {
+    html += escapeHtml(source.slice(cursor, range.start));
+    html += `<mark>${escapeHtml(source.slice(range.start, range.end))}</mark>`;
+    cursor = range.end;
+  });
+  html += escapeHtml(source.slice(cursor));
+  return html;
+}
+
+function setEventSearchLoading(isLoading) {
+  isSearchingEvents = isLoading;
+  if (document.activeElement === eventInput) {
+    renderEventSuggestions();
+  }
+}
+
+async function searchEventsAcrossYears(query) {
+  const trimmedQuery = query.trim();
+  if (trimmedQuery.length < 2) {
+    remoteEvents = [];
+    setEventSearchLoading(false);
+    return;
+  }
+
+  const requestId = eventSearchRequestId + 1;
+  eventSearchRequestId = requestId;
+  setEventSearchLoading(true);
+  try {
+    const result = await postJson("/api/events/search", {
+      query: trimmedQuery,
+      year_hint: Number(yearSelect.value) || undefined,
+      limit: 12
+    });
+    if (requestId !== eventSearchRequestId || eventInput.value.trim() !== trimmedQuery) {
+      return;
+    }
+    remoteEvents = result.events || [];
+  } catch (error) {
+    if (requestId !== eventSearchRequestId) {
+      return;
+    }
+    remoteEvents = [];
+  } finally {
+    if (requestId === eventSearchRequestId) {
+      setEventSearchLoading(false);
+    }
+  }
+}
+
+function scheduleEventSearch(query) {
+  if (eventSearchTimer !== null) {
+    clearTimeout(eventSearchTimer);
+    eventSearchTimer = null;
+  }
+
+  if (query.trim().length < 2) {
+    eventSearchRequestId += 1;
+    remoteEvents = [];
+    setEventSearchLoading(false);
+    return;
+  }
+
+  eventSearchTimer = setTimeout(() => {
+    eventSearchTimer = null;
+    searchEventsAcrossYears(query);
+  }, 160);
+}
+
+function hideEventSuggestions() {
+  visibleEventSuggestions = [];
+  activeEventSuggestion = -1;
+  eventSuggestions.hidden = true;
+  eventSuggestions.innerHTML = "";
+  eventInput.setAttribute("aria-expanded", "false");
+  eventInput.removeAttribute("aria-activedescendant");
+}
+
+function renderEventSuggestions() {
+  const allEvents = uniqueEvents([...availableEvents, ...remoteEvents]);
+  const query = eventInput.value.trim();
+  if (!query && availableEvents.length === 0) {
+    hideEventSuggestions();
+    return;
+  }
+  if (allEvents.length === 0) {
+    if (isSearchingEvents && query) {
+      eventSuggestions.innerHTML = '<div class="event-suggestion-empty">Searching events…</div>';
+      eventSuggestions.hidden = false;
+      eventInput.setAttribute("aria-expanded", "true");
+      eventInput.removeAttribute("aria-activedescendant");
+      return;
+    }
+    hideEventSuggestions();
+    return;
+  }
+
+  if (!query) {
+    visibleEventSuggestions = availableEvents.slice(0, 8);
+  } else {
+    visibleEventSuggestions = allEvents
+      .map((event, index) => ({ event, index, score: scoreEventMatch(event, query) }))
+      .filter((item) => item.score !== null)
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, 8)
+      .map((item) => item.event);
+  }
+
+  eventSuggestions.innerHTML = "";
+  if (visibleEventSuggestions.length === 0) {
+    eventSuggestions.innerHTML = `<div class="event-suggestion-empty">${isSearchingEvents ? "Searching events…" : "No matching events"}</div>`;
+    eventSuggestions.hidden = false;
+    eventInput.setAttribute("aria-expanded", "true");
+    eventInput.removeAttribute("aria-activedescendant");
+    activeEventSuggestion = -1;
+    return;
+  }
+
+  activeEventSuggestion = Math.min(activeEventSuggestion, visibleEventSuggestions.length - 1);
+  visibleEventSuggestions.forEach((event, index) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.id = `eventSuggestion-${index}`;
+    option.className = "event-suggestion";
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", index === activeEventSuggestion ? "true" : "false");
+    if (index === activeEventSuggestion) {
+      option.classList.add("is-active");
+    }
+    option.innerHTML =
+      `<span class="event-suggestion-top">` +
+      `<span class="event-suggestion-key">${highlightMatches(event.key, query)}</span>` +
+      `<span class="event-suggestion-year">${escapeHtml(eventYearLabel(event))}</span>` +
+      `</span>` +
+      `<span class="event-suggestion-name">${highlightMatches(event.name, query)}</span>`;
+    option.addEventListener("mousedown", async (eventObject) => {
+      eventObject.preventDefault();
+      await applyEventSuggestion(index, true);
+    });
+    eventSuggestions.appendChild(option);
+  });
+
+  eventSuggestions.hidden = false;
+  eventInput.setAttribute("aria-expanded", "true");
+  if (activeEventSuggestion >= 0) {
+    eventInput.setAttribute("aria-activedescendant", `eventSuggestion-${activeEventSuggestion}`);
+  } else {
+    eventInput.removeAttribute("aria-activedescendant");
+  }
+}
+
+function openEventSuggestions() {
+  renderEventSuggestions();
+  scheduleEventSearch(eventInput.value);
+}
+
+function moveEventSuggestion(step) {
+  if (visibleEventSuggestions.length === 0) {
+    openEventSuggestions();
+    if (visibleEventSuggestions.length === 0) {
+      return;
+    }
+  }
+  if (activeEventSuggestion === -1) {
+    activeEventSuggestion = step > 0 ? 0 : visibleEventSuggestions.length - 1;
+  } else {
+    activeEventSuggestion = (activeEventSuggestion + step + visibleEventSuggestions.length) % visibleEventSuggestions.length;
+  }
+  renderEventSuggestions();
+}
+
+async function applyEventSuggestion(index, shouldLoad) {
+  const event = visibleEventSuggestions[index];
+  if (!event) {
+    return;
+  }
+  eventInput.value = event.key;
+  hideEventSuggestions();
+  remoteEvents = [];
+  if (event.year && String(event.year) !== yearSelect.value) {
+    yearSelect.value = String(event.year);
+    await loadEventsForYear();
+    hideEventSuggestions();
+  }
+  syncEventSelect(event.key);
+  if (shouldLoad) {
+    loadEventOptionsIfChanged();
+  }
+}
+
 // Fill a <select> with team options, preserving the current value when possible.
 function fillTeamSelect(select, teams, placeholder) {
   if (!select) {
@@ -196,6 +567,7 @@ async function loadEventOptions() {
     return;
   }
   statusLabel.textContent = "Loading event…";
+  eventInput.dataset.pendingLoad = eventKey;
   loadEventButton.disabled = true;
   loadEventButton.classList.add("is-busy");
   try {
@@ -219,11 +591,15 @@ async function loadEventOptions() {
       teamOptionsList.appendChild(option);
     });
 
+    syncEventSelect(eventKey);
+
     statusLabel.textContent = `Loaded ${teams.length} teams · ${matches.length} matches`;
+    eventInput.dataset.lastLoaded = eventKey;
   } catch (error) {
     // Non-fatal: the dashboard still works with manual entry / current files.
     statusLabel.textContent = `Could not load event options: ${error.message}`;
   } finally {
+    delete eventInput.dataset.pendingLoad;
     loadEventButton.disabled = false;
     loadEventButton.classList.remove("is-busy");
   }
@@ -254,7 +630,8 @@ async function loadEventsForYear() {
   statusLabel.textContent = `Loading ${year} events…`;
   try {
     const data = await postJson("/api/events", { year });
-    const events = data.events || [];
+    const events = (data.events || []).map((event) => ({ ...event, year: event.year || year }));
+    availableEvents = events;
     const previous = eventSelect.value;
     const currentKey = eventInput.value.trim();
     eventSelect.innerHTML = "";
@@ -265,20 +642,40 @@ async function loadEventsForYear() {
     events.forEach((event) => {
       const option = document.createElement("option");
       option.value = event.key;
-      option.textContent = `${event.key} · ${event.name}`;
+      option.textContent = eventOptionLabel(event);
       eventSelect.appendChild(option);
     });
     if (events.some((event) => event.key === currentKey)) {
       eventSelect.value = currentKey;
     } else if (events.some((event) => event.key === previous)) {
       eventSelect.value = previous;
+    } else {
+      eventSelect.value = "";
+    }
+    if (document.activeElement === eventInput) {
+      openEventSuggestions();
     }
     statusLabel.textContent = `Loaded ${events.length} ${year} events`;
   } catch (error) {
+    availableEvents = [];
+    hideEventSuggestions();
     statusLabel.textContent = `Could not load events: ${error.message}`;
   } finally {
     eventSelect.disabled = false;
   }
+}
+
+function loadEventOptionsIfChanged(options = {}) {
+  const requireKnownEvent = Boolean(options.requireKnownEvent);
+  const eventKey = eventInput.value.trim();
+  syncEventSelect(eventKey);
+  if (requireKnownEvent && availableEvents.length > 0 && !hasLoadedEvent(eventKey)) {
+    return;
+  }
+  if (!eventKey || eventKey === eventInput.dataset.lastLoaded || eventKey === eventInput.dataset.pendingLoad) {
+    return;
+  }
+  loadEventOptions();
 }
 
 function allianceColorOf(prediction, teamKey) {
@@ -536,19 +933,61 @@ async function runPrediction() {
 runButton.addEventListener("click", runPrediction);
 refreshButton.addEventListener("click", refreshFiles);
 loadEventButton.addEventListener("click", loadEventOptions);
-yearSelect.addEventListener("change", loadEventsForYear);
+yearSelect.addEventListener("change", async () => {
+  await loadEventsForYear();
+  if (document.activeElement === eventInput) {
+    scheduleEventSearch(eventInput.value);
+  }
+});
 // Choosing an event from the dropdown drives the event key + its options.
 eventSelect.addEventListener("change", () => {
   if (eventSelect.value) {
     eventInput.value = eventSelect.value;
-    loadEventOptions();
+    hideEventSuggestions();
+    loadEventOptionsIfChanged();
   }
 });
-// Repopulate dropdowns whenever the event changes (Enter or blur fires change).
-eventInput.addEventListener("change", loadEventOptions);
+eventInput.addEventListener("focus", openEventSuggestions);
+eventInput.addEventListener("input", () => {
+  activeEventSuggestion = -1;
+  syncEventSelect(eventInput.value.trim());
+  openEventSuggestions();
+});
+eventInput.addEventListener("blur", () => {
+  hideEventSuggestions();
+  loadEventOptionsIfChanged({ requireKnownEvent: true });
+});
+eventInput.addEventListener("change", () => {
+  loadEventOptionsIfChanged({ requireKnownEvent: true });
+});
 eventInput.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    moveEventSuggestion(1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    moveEventSuggestion(-1);
+    return;
+  }
+  if (event.key === "Escape") {
+    hideEventSuggestions();
+    return;
+  }
   if (event.key === "Enter") {
-    loadEventOptions();
+    if (!eventSuggestions.hidden && activeEventSuggestion >= 0) {
+      event.preventDefault();
+      applyEventSuggestion(activeEventSuggestion, true);
+      return;
+    }
+    hideEventSuggestions();
+    loadEventOptionsIfChanged();
+  }
+});
+document.addEventListener("mousedown", (event) => {
+  if (!eventSearchBox.contains(event.target)) {
+    hideEventSuggestions();
   }
 });
 

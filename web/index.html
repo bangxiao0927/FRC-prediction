@@ -25,7 +25,19 @@
       </label>
       <label>
         Event key
-        <input id="eventKey" type="text" value="2024casj" autocomplete="off" />
+        <div id="eventSearchBox" class="search-combobox">
+          <input
+            id="eventKey"
+            type="text"
+            value="2024casj"
+            autocomplete="off"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="false"
+            aria-controls="eventSuggestions"
+          />
+          <div id="eventSuggestions" class="event-suggestions" role="listbox" hidden></div>
+        </div>
       </label>
       <button id="loadEvent" type="button">Load</button>
       <label>
