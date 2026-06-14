@@ -303,6 +303,26 @@ python app.py
    then click **Run**. The dashboard runs the CLI for you — no need to generate
    files by hand.
 
+### Docker Deployment
+
+For servers or quick deployment without installing vcpkg locally:
+
+```bash
+export TBA_AUTH_KEY=your_key_here
+docker compose up -d
+```
+
+The dashboard will be available at `http://<server>:8000`. The image builds
+the C++ CLI from source and serves the Flask app with gunicorn. Data is
+persisted in a Docker volume.
+
+Manual build without compose:
+
+```bash
+docker build -t frc-prediction .
+docker run -d -p 8000:8000 -e TBA_AUTH_KEY=your_key -v frc_data:/app/data frc-prediction
+```
+
 The dashboard provides:
 
 - A **win-probability bar** plus a red-left / blue-right comparison of each

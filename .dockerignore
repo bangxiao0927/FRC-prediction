@@ -1,0 +1,12 @@
+build/
+.venv/
+data/
+.git/
+.github/
+.pytest_cache/
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+config.json
+.codet/
