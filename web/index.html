@@ -14,7 +14,17 @@
 
     <section class="controls" aria-label="Prediction controls">
       <label>
+        Year
+        <select id="yearSelect"></select>
+      </label>
+      <label>
         Event
+        <select id="eventSelect">
+          <option value="">Select event…</option>
+        </select>
+      </label>
+      <label>
+        Event key
         <input id="eventKey" type="text" value="2024casj" list="eventList" autocomplete="off" />
       </label>
       <button id="loadEvent" type="button">Load</button>

@@ -34,6 +34,9 @@ const allianceChartBox = document.getElementById("allianceChartBox");
 const loadEventButton = document.getElementById("loadEvent");
 const teamOptionsList = document.getElementById("teamOptions");
 const eventList = document.getElementById("eventList");
+const yearSelect = document.getElementById("yearSelect");
+const eventSelect = document.getElementById("eventSelect");
+const eventList = document.getElementById("eventList");
 const allianceTeamSelects = [
   document.getElementById("allianceTeam1"),
   document.getElementById("allianceTeam2"),
@@ -189,12 +192,41 @@ function fillMatchSelect(matches) {
   }
 }
 
+function fillEventList(events) {
+  eventList.innerHTML = "";
+  events.forEach((event) => {
+    const option = document.createElement("option");
+    option.value = event.key;
+    option.label = `${event.key} · ${event.name}`;
+    option.setAttribute("data-key", event.key);
+    eventList.appendChild(option);
+  });
+}
+
+function ensureEventSuggestion(eventKey) {
+  if (!eventKey) {
+    return;
+  }
+  if (Array.from(eventList.options).some((option) => option.value === eventKey)) {
+    return;
+  }
+  const option = document.createElement("option");
+  option.value = eventKey;
+  option.setAttribute("data-key", eventKey);
+  const matchingEvent = Array.from(eventSelect.options).find((item) => item.value === eventKey);
+  option.label = matchingEvent ? matchingEvent.textContent : eventKey;
+  eventList.appendChild(option);
+}
+
 async function loadEventOptions() {
   const eventKey = eventInput.value.trim();
   if (!eventKey) {
     return;
   }
   statusLabel.textContent = "Loading event…";
+  eventInput.dataset.pendingLoad = eventKey;
+  loadEventButton.disabled = true;
+  loadEventButton.classList.add("is-busy");
   try {
     const options = await postJson("/api/event/options", { event_key: eventKey });
     const teams = options.teams || [];
@@ -216,19 +248,9 @@ async function loadEventOptions() {
       teamOptionsList.appendChild(option);
     });
 
-    // Event search: seed the datalist with the loaded event so typing its key or
-    // name in the Event field brings it up as a suggestion. The event-options
-    // response doesn't include all events, so this is a minimal seed — the full
-    // event list comes from /api/events when the user changes the year.
-    if (!Array.from(eventList.querySelectorAll("option")).some(
-        (opt) => opt.value === eventKey || opt.getAttribute("data-key") === eventKey)) {
-      // Derive a short name from the event key: 2024casj -> "casj".
-      const shortName = eventKey.replace(/^\d{4}/, "");
-      const option = document.createElement("option");
-      option.value = eventKey;
-      option.setAttribute("data-key", eventKey);
-      option.label = `${eventKey} · ${shortName}`;
-      eventList.appendChild(option);
+    ensureEventSuggestion(eventKey);
+    if (Array.from(eventSelect.options).some((option) => option.value === eventKey)) {
+      eventSelect.value = eventKey;
     }
 
     statusLabel.textContent = `Loaded ${teams.length} teams · ${matches.length} matches`;
@@ -236,7 +258,73 @@ async function loadEventOptions() {
   } catch (error) {
     // Non-fatal: the dashboard still works with manual entry / current files.
     statusLabel.textContent = `Could not load event options: ${error.message}`;
+  } finally {
+    delete eventInput.dataset.pendingLoad;
+    loadEventButton.disabled = false;
+    loadEventButton.classList.remove("is-busy");
   }
+}
+
+// ---- Year -> event dropdown ----
+
+function populateYears() {
+  const latest = new Date().getFullYear();
+  yearSelect.innerHTML = "";
+  for (let year = latest; year >= 2010; year -= 1) {
+    const option = document.createElement("option");
+    option.value = String(year);
+    option.textContent = String(year);
+    yearSelect.appendChild(option);
+  }
+  // Default to the year embedded in the current event key, else the latest.
+  const fromKey = (eventInput.value.match(/^(\d{4})/) || [])[1];
+  yearSelect.value = fromKey && Number(fromKey) <= latest ? fromKey : String(latest);
+}
+
+async function loadEventsForYear() {
+  const year = Number(yearSelect.value);
+  if (!year) {
+    return;
+  }
+  eventSelect.disabled = true;
+  statusLabel.textContent = `Loading ${year} events…`;
+  try {
+    const data = await postJson("/api/events", { year });
+    const events = data.events || [];
+    const previous = eventSelect.value;
+    const currentKey = eventInput.value.trim();
+    eventSelect.innerHTML = "";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "Select event…";
+    eventSelect.appendChild(blank);
+    fillEventList(events);
+    events.forEach((event) => {
+      const option = document.createElement("option");
+      option.value = event.key;
+      option.textContent = `${event.key} · ${event.name}`;
+      eventSelect.appendChild(option);
+    });
+    if (events.some((event) => event.key === currentKey)) {
+      eventSelect.value = currentKey;
+    } else if (events.some((event) => event.key === previous)) {
+      eventSelect.value = previous;
+    }
+    ensureEventSuggestion(currentKey);
+    statusLabel.textContent = `Loaded ${events.length} ${year} events`;
+  } catch (error) {
+    statusLabel.textContent = `Could not load events: ${error.message}`;
+  } finally {
+    eventSelect.disabled = false;
+  }
+}
+
+function loadEventOptionsIfChanged() {
+  const eventKey = eventInput.value.trim();
+  if (!eventKey || eventKey === eventInput.dataset.lastLoaded || eventKey === eventInput.dataset.pendingLoad) {
+    return;
+  }
+  loadEventOptions();
 }
 
 function allianceColorOf(prediction, teamKey) {
@@ -494,19 +582,19 @@ async function runPrediction() {
 runButton.addEventListener("click", runPrediction);
 refreshButton.addEventListener("click", refreshFiles);
 loadEventButton.addEventListener("click", loadEventOptions);
-// When the user tabs out of or commits the Event field after typing (possibly
-// picking a datalist suggestion), load that event's options.
-eventInput.addEventListener("blur", () => {
-  const value = eventInput.value.trim();
-  if (value && value !== eventInput.dataset.lastLoaded) {
-    loadEventOptions();
+yearSelect.addEventListener("change", loadEventsForYear);
+// Choosing an event from the dropdown drives the event key + its options.
+eventSelect.addEventListener("change", () => {
+  if (eventSelect.value) {
+    eventInput.value = eventSelect.value;
+    loadEventOptionsIfChanged();
   }
 });
-// Repopulate dropdowns whenever the event changes (Enter or blur fires change).
-eventInput.addEventListener("change", loadEventOptions);
+eventInput.addEventListener("blur", loadEventOptionsIfChanged);
+eventInput.addEventListener("change", loadEventOptionsIfChanged);
 eventInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
-    loadEventOptions();
+    loadEventOptionsIfChanged();
   }
 });
 
@@ -852,6 +940,9 @@ async function evaluateAlliance() {
 
 evalAllianceButton.addEventListener("click", evaluateAlliance);
 
-// Populate the dropdowns for the default event, then load any existing files.
+// Populate the year list and the default event's dropdowns, then load any
+// existing files. The year -> events fetch hits TBA, so run it independently.
+populateYears();
+loadEventsForYear();
 loadEventOptions();
 refreshFiles();
