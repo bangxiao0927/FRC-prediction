@@ -593,6 +593,19 @@ async function loadEventOptions() {
 
     syncEventSelect(eventKey);
 
+    // Default Top to the event's team count so "all teams" is meaningful.
+    const teamCount = teams.length;
+    if (teamCount > 0) {
+      document.getElementById("topCount").value = teamCount;
+      document.getElementById("rolesTop").value = teamCount;
+      document.getElementById("picklistTop").value = teamCount;
+      // Update max so user can see all + some headroom
+      const ceiling = Math.max(teamCount, 200);
+      document.getElementById("topCount").max = ceiling;
+      document.getElementById("rolesTop").max = ceiling;
+      document.getElementById("picklistTop").max = ceiling;
+    }
+
     statusLabel.textContent = `Loaded ${teams.length} teams · ${matches.length} matches`;
     eventInput.dataset.lastLoaded = eventKey;
   } catch (error) {
