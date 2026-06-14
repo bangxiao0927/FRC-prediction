@@ -76,12 +76,35 @@ already-picked teams, and `--before MATCH_KEY` to rank as of a point in the even
 ```text
 .
 ├── CMakeLists.txt
+├── ISSUES.md
+├── LICENSE
 ├── PLAN.md
 ├── README.md
 ├── README.zh-CN.md
 ├── config.example.json
+├── config.json
+├── app.py
+├── requirements.txt
+├── requirements-dev.txt
 ├── src/
-│   └── main.cpp
+│   ├── main.cpp
+│   ├── cache.{h,cpp}
+│   ├── config.{h,cpp}
+│   ├── history.{h,cpp}
+│   ├── opr.{h,cpp}
+│   ├── picklist.{h,cpp}
+│   ├── predictor.{h,cpp}
+│   ├── roles.{h,cpp}
+│   ├── stats.{h,cpp}
+│   ├── synergy.{h,cpp}
+│   └── tba_client.{h,cpp}
+├── tests/
+│   ├── predictor_tests.cpp
+│   └── test_app.py
+├── web/
+│   ├── app.js
+│   ├── index.html
+│   └── styles.css
 └── vcpkg.json
 ```
 
@@ -351,23 +374,36 @@ Qualification predictions use qualification matches only; elimination prediction
 - [x] Initialize CMake + vcpkg project
 - [x] Add TBA API minimal request
 - [x] Add local config template
-- [ ] Wrap a `TbaClient` class
-- [ ] Pull event matches and rankings
-- [ ] Add local cache
-- [ ] Compute baseline team statistics
-- [ ] Generate qualification win probabilities
-- [ ] Produce elimination picklist recommendations
+- [x] Wrap a `TbaClient` class
+- [x] Pull event matches and rankings
+- [x] Add local cache
+- [x] Compute baseline team statistics
+- [x] Generate qualification win probabilities
+- [x] Produce elimination picklist recommendations
+- [x] Add backtesting (`--evaluate`) and history blending (`--use-history`)
+- [x] Add team roles, alliance evaluator, and CLI JSON/CSV outputs
+- [x] Ship a Flask dashboard for running predictions and picklists
 
-## Short-Term TODO
+## Completion Criteria (MVP)
 
-- Define `TbaClient` and move request logic out of `main.cpp`
-- Add `EventData` / `TeamStats` / `MatchPrediction` data structures
-- Draft a baseline scoring model (avg, consistency, trend, alliance synergy)
-- Add CLI args such as `--event 2024casj` and `--match qm1`
+This project is considered "done" for MVP when all of these are true:
+
+- The CLI can predict qualification matches, generate picklists, and run
+  `--evaluate` backtests.
+- The Flask dashboard can run those same workflows end-to-end.
+- C++ and Flask tests pass locally (or CI is green on the main branch).
+
+## Open Issues
+
+- [ ] UI: optimize the dashboard layout and responsiveness (spacing, table
+  readability, and mobile-friendly view)
 
 ## Contributing
 
-This project is early-stage. The first milestone is an MVP that can pull one event and provide explainable win probabilities for qualification matches, then expand to picklist and elimination predictions.
+The project has reached MVP: the CLI predicts qualification matches, generates
+picklists, and runs `--evaluate` backtests; the Flask dashboard runs the same
+workflows end-to-end. Contributions for new features, model improvements, and UI
+enhancements are welcome.
 
 ## Picklist Strategy (How Ranking Is Computed)
 
