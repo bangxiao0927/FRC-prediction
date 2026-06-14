@@ -6,11 +6,17 @@
 namespace {
 
 double match_time(const nlohmann::json& match) {
-    double time = match.value("time", 0.0);
-    if (time > 0.0) {
-        return time;
+    // TBA often returns these as null (not absent); json::value throws on a
+    // present-but-null value, so read defensively.
+    for (const char* key : {"time", "actual_time"}) {
+        if (match.contains(key) && match[key].is_number()) {
+            const double when = match[key].get<double>();
+            if (when > 0.0) {
+                return when;
+            }
+        }
     }
-    return match.value("actual_time", 0.0);
+    return 0.0;
 }
 
 // Return the alliance score and team count for the alliance that contains

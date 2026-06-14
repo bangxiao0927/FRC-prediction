@@ -291,8 +291,13 @@ std::vector<std::string> match_team_keys(const nlohmann::json& match) {
 
 // Best available timestamp for a match (scheduled or actual).
 double match_time_value(const nlohmann::json& match) {
+    // TBA frequently returns these fields as null (not just absent); json::value
+    // throws on a present-but-null value, so read defensively.
     for (const char* key : {"time", "actual_time", "predicted_time"}) {
-        const double when = match.value(key, 0.0);
+        if (!match.contains(key) || !match[key].is_number()) {
+            continue;
+        }
+        const double when = match[key].get<double>();
         if (when > 0.0) {
             return when;
         }
@@ -1155,6 +1160,19 @@ int main(int argc, char** argv) {
         int evaluated = 0;
         int correct_winner = 0;
         double total_abs_error = 0.0;
+        // When history is requested, score every match a second time with the
+        // cross-event blend so we can report baseline vs. history side by side.
+        const bool eval_history = config.use_opr && use_history;
+        const PhaseConfidence phase_confidence{
+            config.history_auto_matches,
+            config.history_teleop_matches,
+            config.history_endgame_matches};
+        int history_correct_winner = 0;
+        double history_total_abs_error = 0.0;
+        if (eval_history) {
+            std::cerr << "Evaluating with history (--use-history); this makes per-team "
+                         "TBA calls per match and may be slow on a cold cache.\n";
+        }
         for (const auto& match : matches) {
             if (!match.contains("alliances") || !match["alliances"].is_object()) {
                 continue;
@@ -1208,6 +1226,24 @@ int main(int argc, char** argv) {
                 correct_winner += 1;
             }
 
+            // Second pass with cross-event history blended into the OPRs. History
+            // excludes the current event and anything at/after this match, so the
+            // backtest stays leak-free.
+            if (eval_history) {
+                const std::map<std::string, double> history_oprs =
+                    blended_oprs_with_history(client, match, matches, match_filter, event_key,
+                                              oprs, stats, config.confidence_match_count,
+                                              phase_confidence, history_teams);
+                MatchPrediction history_prediction = predict_match(
+                    match, stats, config.confidence_match_count,
+                    config.score_diff_scale, config.sigmoid_scale, history_oprs);
+                const double history_diff = history_prediction.adjusted_score_diff_estimate;
+                history_total_abs_error += std::abs(actual_diff - history_diff);
+                if ((history_prediction.red_win_probability >= 0.5) == actual_red) {
+                    history_correct_winner += 1;
+                }
+            }
+
             evaluated += 1;
         }
 
@@ -1218,6 +1254,10 @@ int main(int argc, char** argv) {
 
         double mae = total_abs_error / static_cast<double>(evaluated);
         double accuracy = static_cast<double>(correct_winner) / static_cast<double>(evaluated);
+        const double history_mae = eval_history
+            ? history_total_abs_error / static_cast<double>(evaluated) : 0.0;
+        const double history_accuracy = eval_history
+            ? static_cast<double>(history_correct_winner) / static_cast<double>(evaluated) : 0.0;
         const std::string timestamp = current_timestamp_iso8601();
         if (!eval_json_path.empty()) {
             nlohmann::json output = {
@@ -1229,6 +1269,14 @@ int main(int argc, char** argv) {
                 {"winner_accuracy", accuracy},
                 {"model_uses_opr", config.use_opr}
             };
+            if (eval_history) {
+                output["model_uses_history"] = true;
+                output["history_mae"] = history_mae;
+                output["history_winner_accuracy"] = history_accuracy;
+                // Positive = history improved over baseline.
+                output["mae_improvement"] = mae - history_mae;
+                output["accuracy_improvement"] = history_accuracy - accuracy;
+            }
             if (!write_text_file(eval_json_path, output.dump(2))) {
                 std::cerr << "Failed to write evaluation JSON to " << eval_json_path << ".\n";
                 return 1;
@@ -1244,14 +1292,21 @@ int main(int argc, char** argv) {
                 return 1;
             }
             if (write_header) {
-                file << "timestamp,event_key,phase,matches,mae,winner_accuracy\n";
+                file << "timestamp,event_key,phase,model,matches,mae,winner_accuracy\n";
             }
-            file << timestamp << ","
-                 << event_key << ","
-                 << (phase_arg.empty() ? "all" : phase_arg) << ","
-                 << evaluated << ","
-                 << mae << ","
-                 << accuracy << "\n";
+            auto write_row = [&](const std::string& model, double row_mae, double row_accuracy) {
+                file << timestamp << ","
+                     << event_key << ","
+                     << (phase_arg.empty() ? "all" : phase_arg) << ","
+                     << model << ","
+                     << evaluated << ","
+                     << row_mae << ","
+                     << row_accuracy << "\n";
+            };
+            write_row(config.use_opr ? "opr" : "legacy", mae, accuracy);
+            if (eval_history) {
+                write_row("opr+history", history_mae, history_accuracy);
+            }
             std::cout << "Wrote evaluation CSV to " << eval_csv_path << "\n";
         }
 
@@ -1263,6 +1318,12 @@ int main(int argc, char** argv) {
             std::cout << "  mae=" << mae << "\n";
             std::cout << "  winner_accuracy=" << accuracy << "\n";
             std::cout << "  model_uses_opr=" << (config.use_opr ? "true" : "false") << "\n";
+            if (eval_history) {
+                std::cout << "  history_mae=" << history_mae
+                          << " (improvement " << (mae - history_mae) << ")\n";
+                std::cout << "  history_winner_accuracy=" << history_accuracy
+                          << " (improvement " << (history_accuracy - accuracy) << ")\n";
+            }
         }
     }
 

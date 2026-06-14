@@ -213,6 +213,28 @@ sample, so very early win probabilities stay conservative even though the score
 estimate already reflects history. `--use-history` makes extra TBA calls per
 team (cached), so it is opt-in.
 
+### Backtesting accuracy (`--evaluate`)
+
+`--evaluate` replays every completed match at an event, scoring each one using
+only the matches before it (no future-data leakage), and reports **MAE** (mean
+absolute error of the predicted score margin) and **winner accuracy**. Add
+`--phase qm|elim|all` to scope it and `--eval-json` / `--eval-csv` to record runs.
+
+Add `--use-history` to score every match a *second* time with the cross-event
+history blend and print both side by side, so you can measure whether history
+actually helps:
+
+```text
+  mae=19.11
+  winner_accuracy=0.701
+  history_mae=18.70 (improvement 0.41)
+  history_winner_accuracy=0.714 (improvement 0.013)
+```
+
+(With `--eval-csv`, baseline and history are written as separate rows tagged in a
+`model` column.) Because history makes per-team TBA calls for every match, this
+is slow on a cold cache.
+
 ### 3. Build
 
 ```bash
@@ -292,6 +314,7 @@ Examples:
 ./build/frc_prediction --event 2024casj --evaluate --phase qm
 ./build/frc_prediction --event 2024casj --evaluate --phase elim --eval-json data/eval.json
 ./build/frc_prediction --event 2024casj --evaluate --phase all --eval-csv data/eval.csv
+./build/frc_prediction --event 2024cacc --evaluate --phase qm --use-history
 ./build/frc_prediction --event 2024casj --picklist frc254 --top 24 --strategy balanced
 ./build/frc_prediction --event 2024casj --picklist frc254 --top 24
 ./build/frc_prediction --event 2024casj --picklist frc254 --strategy offense --exclude 1678,254
