@@ -593,6 +593,19 @@ async function loadEventOptions() {
 
     syncEventSelect(eventKey);
 
+    // Default Top to the event's team count so "all teams" is meaningful.
+    const teamCount = teams.length;
+    if (teamCount > 0) {
+      document.getElementById("topCount").value = teamCount;
+      document.getElementById("rolesTop").value = teamCount;
+      document.getElementById("picklistTop").value = teamCount;
+      // Update max so user can see all + some headroom
+      const ceiling = Math.max(teamCount, 200);
+      document.getElementById("topCount").max = ceiling;
+      document.getElementById("rolesTop").max = ceiling;
+      document.getElementById("picklistTop").max = ceiling;
+    }
+
     statusLabel.textContent = `Loaded ${teams.length} teams · ${matches.length} matches`;
     eventInput.dataset.lastLoaded = eventKey;
   } catch (error) {
@@ -1332,6 +1345,27 @@ async function evaluateAlliance() {
 }
 
 evalAllianceButton.addEventListener("click", evaluateAlliance);
+
+// ---- Tab switching ----
+(function initTabs() {
+  const tabButtons = document.querySelectorAll(".tab-btn");
+  const tabPanels = document.querySelectorAll(".tab-panel");
+
+  function switchTab(targetId) {
+    tabButtons.forEach(function (btn) {
+      btn.classList.toggle("active", btn.dataset.tab === targetId);
+    });
+    tabPanels.forEach(function (panel) {
+      panel.classList.toggle("active", panel.id === "tab-" + targetId);
+    });
+  }
+
+  tabButtons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      switchTab(btn.dataset.tab);
+    });
+  });
+})();
 
 // Populate the year list and the default event's dropdowns, then load any
 // existing files. The year -> events fetch hits TBA, so run it independently.
