@@ -1,0 +1,16 @@
+[Unit]
+Description=FRC Prediction Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=%USER%
+WorkingDirectory=%APP_DIR%
+ExecStart=%APP_DIR%/.venv/bin/gunicorn --bind 127.0.0.1:8000 --workers 2 --timeout 120 app:app
+Restart=always
+RestartSec=5
+Environment=TBA_AUTH_KEY=
+Environment=PORT=8000
+
+[Install]
+WantedBy=multi-user.target

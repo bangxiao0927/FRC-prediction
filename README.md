@@ -303,6 +303,53 @@ python app.py
    then click **Run**. The dashboard runs the CLI for you — no need to generate
    files by hand.
 
+### Docker Deployment
+
+For servers or quick deployment without installing vcpkg locally:
+
+```bash
+export TBA_AUTH_KEY=your_key_here
+docker compose up -d
+```
+
+The dashboard will be available at `http://<server>:8000`. The image builds
+the C++ CLI from source and serves the Flask app with gunicorn. Data is
+persisted in a Docker volume.
+
+Manual build without compose:
+
+```bash
+docker build -t frc-prediction .
+docker run -d -p 8000:8000 -e TBA_AUTH_KEY=your_key -v frc_data:/app/data frc-prediction
+```
+
+### Ubuntu Server Deployment (bare-metal)
+
+One-command setup for Ubuntu 22.04 / 24.04:
+
+```bash
+git clone https://github.com/bangxiao0927/FRC-prediction.git
+cd FRC-prediction
+chmod +x deploy/setup.sh
+./deploy/setup.sh
+```
+
+This installs all dependencies, builds the CLI, creates a systemd service, and
+configures nginx as a reverse proxy. After setup:
+
+```bash
+# Edit your TBA key
+nano ~/frc-prediction/config.json
+
+# Restart the service
+sudo systemctl restart frc-prediction
+
+# View logs
+sudo journalctl -u frc-prediction -f
+```
+
+Dashboard available at `http://<server-ip>`.
+
 The dashboard provides:
 
 - A **win-probability bar** plus a red-left / blue-right comparison of each

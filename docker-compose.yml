@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - TBA_AUTH_KEY=${TBA_AUTH_KEY:-}
+    volumes:
+      - frc_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  frc_data:
