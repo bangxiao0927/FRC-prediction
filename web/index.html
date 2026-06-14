@@ -12,6 +12,13 @@
       <h1>FRC Prediction Dashboard</h1>
     </header>
 
+    <nav class="tab-nav" aria-label="Dashboard sections">
+      <button class="tab-btn active" data-tab="match">Match</button>
+      <button class="tab-btn" data-tab="roles">Roles</button>
+      <button class="tab-btn" data-tab="alliance">Alliance</button>
+      <button class="tab-btn" data-tab="picklist">Picklist</button>
+    </nav>
+
     <section class="controls" aria-label="Prediction controls">
       <label>
         Year
@@ -80,6 +87,7 @@
          from the loaded event. -->
     <datalist id="teamOptions"></datalist>
 
+    <div class="tab-panel active" id="tab-match">
     <section id="errorPanel" class="error-panel" hidden></section>
 
     <section id="predictionPanel" class="prediction-panel" hidden>
@@ -154,7 +162,9 @@
       </table>
       </div>
     </section>
+    </div><!-- #tab-match -->
 
+    <div class="tab-panel" id="tab-roles">
     <section>
       <h2>Team Roles</h2>
       <div class="controls" aria-label="Roles controls">
@@ -194,7 +204,9 @@
       </table>
       </div>
     </section>
+    </div><!-- #tab-roles -->
 
+    <div class="tab-panel" id="tab-alliance">
     <section>
       <h2>Alliance Evaluator</h2>
       <div class="controls" aria-label="Alliance controls">
@@ -222,7 +234,9 @@
         <canvas id="allianceChart"></canvas>
       </div>
     </section>
+    </div><!-- #tab-alliance -->
 
+    <div class="tab-panel" id="tab-picklist">
     <section>
       <h2>Picklist</h2>
       <div class="controls" aria-label="Picklist controls">
@@ -272,6 +286,7 @@
       </table>
       </div>
     </section>
+    </div><!-- #tab-picklist -->
 
     <script src="/assets/app.js"></script>
   </body>

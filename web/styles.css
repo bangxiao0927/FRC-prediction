@@ -49,6 +49,49 @@ h3 {
   margin-bottom: 10px;
 }
 
+/* ---- Tab navigation ---- */
+.tab-nav {
+  display: flex;
+  gap: 4px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 28px 0;
+}
+
+.tab-btn {
+  height: 40px;
+  padding: 0 22px;
+  border: none;
+  border-radius: 8px 8px 0 0;
+  background: #e5e7eb;
+  color: #475569;
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-btn:hover {
+  background: #d1d5db;
+  color: #1f2937;
+}
+
+.tab-btn.active {
+  background: #fff;
+  color: #2563eb;
+  box-shadow: 0 -2px 0 #2563eb inset;
+}
+
+/* ---- Tab panels ---- */
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
 .controls {
   display: flex;
   align-items: end;
@@ -57,7 +100,7 @@ h3 {
   padding: 14px 18px;
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  border-radius: 0 12px 12px 12px;
   margin-bottom: 20px;
 }
 
@@ -690,6 +733,18 @@ button.is-busy {
     padding-right: 14px;
   }
 
+  .tab-nav {
+    padding-left: 14px;
+    padding-right: 14px;
+    gap: 2px;
+  }
+
+  .tab-btn {
+    padding: 0 14px;
+    font-size: 13px;
+    height: 36px;
+  }
+
   .controls {
     align-items: stretch;
     padding: 10px 12px;
@@ -728,6 +783,17 @@ button.is-busy {
 }
 
 @media (max-width: 480px) {
+  .tab-nav {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .tab-btn {
+    padding: 0 10px;
+    font-size: 12px;
+    height: 34px;
+  }
+
   .controls {
     gap: 8px;
     padding: 8px 10px;

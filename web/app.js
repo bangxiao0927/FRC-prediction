@@ -1333,6 +1333,27 @@ async function evaluateAlliance() {
 
 evalAllianceButton.addEventListener("click", evaluateAlliance);
 
+// ---- Tab switching ----
+(function initTabs() {
+  const tabButtons = document.querySelectorAll(".tab-btn");
+  const tabPanels = document.querySelectorAll(".tab-panel");
+
+  function switchTab(targetId) {
+    tabButtons.forEach(function (btn) {
+      btn.classList.toggle("active", btn.dataset.tab === targetId);
+    });
+    tabPanels.forEach(function (panel) {
+      panel.classList.toggle("active", panel.id === "tab-" + targetId);
+    });
+  }
+
+  tabButtons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      switchTab(btn.dataset.tab);
+    });
+  });
+})();
+
 // Populate the year list and the default event's dropdowns, then load any
 // existing files. The year -> events fetch hits TBA, so run it independently.
 populateYears();
