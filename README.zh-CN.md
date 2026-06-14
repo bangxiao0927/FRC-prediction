@@ -70,12 +70,35 @@ CLI 的 `--picklist` 会根据资格赛表现给队伍打分排序，综合三�
 ```text
 .
 ├── CMakeLists.txt
+├── ISSUES.md
+├── LICENSE
 ├── PLAN.md
 ├── README.md
 ├── README.zh-CN.md
 ├── config.example.json
+├── config.json
+├── app.py
+├── requirements.txt
+├── requirements-dev.txt
 ├── src/
-│   └── main.cpp
+│   ├── main.cpp
+│   ├── cache.{h,cpp}
+│   ├── config.{h,cpp}
+│   ├── history.{h,cpp}
+│   ├── opr.{h,cpp}
+│   ├── picklist.{h,cpp}
+│   ├── predictor.{h,cpp}
+│   ├── roles.{h,cpp}
+│   ├── stats.{h,cpp}
+│   ├── synergy.{h,cpp}
+│   └── tba_client.{h,cpp}
+├── tests/
+│   ├── predictor_tests.cpp
+│   └── test_app.py
+├── web/
+│   ├── app.js
+│   ├── index.html
+│   └── styles.css
 └── vcpkg.json
 ```
 
@@ -213,23 +236,24 @@ data/predictions/<match_key>.json
 - [x] 初始化 CMake + vcpkg 工程
 - [x] 加入 TBA API 最小请求示例
 - [x] 加入本地配置模板
-- [ ] 封装 TBA Client
-- [ ] 拉取赛事比赛与排名数据
-- [ ] 加入本地缓存
-- [ ] 计算队伍基础统计指标
-- [ ] 生成 qualification 胜率预测
-- [ ] 生成 elimination picklist 推荐
+- [x] 封装 TBA Client
+- [x] 拉取赛事比赛与排名数据
+- [x] 加入本地缓存
+- [x] 计算队伍基础统计指标
+- [x] 生成 qualification 胜率预测
+- [x] 生成 elimination picklist 推荐
+- [x] 离线回放评估 (`--evaluate`) 与跨赛事历史融合 (`--use-history`)
+- [x] 队伍角色分析、联盟组合评估，CLI JSON/CSV 输出
+- [x] Flask Web Dashboard
 
-## 近期 TODO
+## 待办事项
 
-- 封装 `TbaClient` 类，避免 API 请求逻辑集中在 `main.cpp`
-- 增加 `EventData` / `TeamStats` / `MatchPrediction` 等数据结构
-- 设计基础评分模型：均分、稳定性、近期趋势、联盟协同
-- 增加命令行参数，例如 `--event 2024casj`、`--match qm1`
+- [ ] UI: 优化 Dashboard 布局与响应式设计（间距、表格可读性、移动端适配）
 
 ## 贡献与协作
 
-这个项目还处于早期阶段，优先目标是先做出可运行 MVP：能拉取一个赛事的数据，并对 qualification match 给出可解释的胜负概率。后续再扩展到更复杂的 picklist 和 elimination 预测。
+项目已具备 MVP 能力：CLI 可预测资格赛胜负、生成 picklist、运行 `--evaluate`
+离线回放，Flask Dashboard 可端到端运行相同流程。欢迎贡献新特征、模型优化及 UI 改进。
 
 ## Picklist 策略（如何计算）
 
