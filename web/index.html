@@ -55,7 +55,7 @@
       </label>
       <label>
         Top
-        <input id="topCount" type="number" min="1" max="100" value="20" />
+        <input id="topCount" type="number" min="0" max="200" value="0" title="0 = all teams" />
       </label>
       <button id="runPrediction">Run</button>
       <button id="refresh" type="button">Refresh files</button>
@@ -178,7 +178,7 @@
         </label>
         <label>
           Top
-          <input id="rolesTop" type="number" min="1" max="200" value="30" />
+          <input id="rolesTop" type="number" min="0" max="200" value="0" title="0 = all teams" />
         </label>
         <button id="buildRoles" type="button">Compute roles</button>
         <span id="rolesStatus" role="status"></span>
@@ -260,7 +260,7 @@
         </label>
         <label>
           Top
-          <input id="picklistTop" type="number" min="1" max="100" value="24" />
+          <input id="picklistTop" type="number" min="0" max="200" value="0" title="0 = all teams" />
         </label>
         <button id="buildPicklist" type="button">Build picklist</button>
         <span id="picklistStatus" role="status"></span>

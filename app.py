@@ -140,14 +140,18 @@ def api_run_prediction():
     payload = request.get_json(silent=True) or {}
     event_key = str(payload.get("event_key", "")).strip()
     match_key = str(payload.get("match_key", "")).strip()
-    top = payload.get("top", 20)
+    top = payload.get("top", 0)
     use_history = bool(payload.get("use_history", False))
     history_teams = str(payload.get("history_teams", "")).strip()
 
     try:
-        top_count = max(1, min(int(top), 100))
+        top_count = int(top)
+        if top_count <= 0:
+            top_count = 0  # 0 means all teams
+        else:
+            top_count = min(top_count, 200)
     except (TypeError, ValueError):
-        top_count = 20
+        top_count = 0
 
     if not event_key:
         return jsonify({"error": "event_key is required"}), 400
@@ -219,12 +223,16 @@ def api_run_picklist():
     strategy = str(payload.get("strategy", "balanced")).strip() or "balanced"
     exclude = str(payload.get("exclude", "")).strip()
     before = str(payload.get("before", "")).strip()
-    top = payload.get("top", 24)
+    top = payload.get("top", 0)
 
     try:
-        top_count = max(1, min(int(top), 100))
+        top_count = int(top)
+        if top_count <= 0:
+            top_count = 0  # 0 means all teams
+        else:
+            top_count = min(top_count, 200)
     except (TypeError, ValueError):
-        top_count = 24
+        top_count = 0
 
     if not event_key:
         return jsonify({"error": "event_key is required"}), 400
@@ -361,12 +369,16 @@ def api_run_roles():
     event_key = str(payload.get("event_key", "")).strip()
     before = str(payload.get("before", "")).strip()
     phase = str(payload.get("phase", "all")).strip() or "all"
-    top = payload.get("top", 30)
+    top = payload.get("top", 0)
 
     try:
-        top_count = max(1, min(int(top), 200))
+        top_count = int(top)
+        if top_count <= 0:
+            top_count = 0  # 0 means all teams
+        else:
+            top_count = min(top_count, 200)
     except (TypeError, ValueError):
-        top_count = 30
+        top_count = 0
 
     if not event_key:
         return jsonify({"error": "event_key is required"}), 400
