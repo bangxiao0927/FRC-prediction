@@ -747,6 +747,7 @@ button.is-busy {
 
   .controls {
     align-items: stretch;
+    flex-direction: column;
     padding: 10px 12px;
   }
 
@@ -755,9 +756,32 @@ button.is-busy {
   #status {
     width: 100%;
   }
+  label {
+    min-width: 0;
+  }
+  input,
+  select {
+    width: 100%;
+  }
+  .search-combobox {
+    width: 100%;
+  }
+  .team-trio {
+    flex-direction: column;
+  }
+  .team-select {
+    width: 100%;
+  }
 
   .compare {
     grid-template-columns: 1fr;
+  }
+  .metric {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .m-label {
+    order: -1;
   }
 
   table {
@@ -780,31 +804,67 @@ button.is-busy {
   h2 {
     font-size: 19px;
   }
+
+  .prediction-head {
+    flex-wrap: wrap;
+  }
+
+  .event-suggestions {
+    max-height: 220px;
+  }
+
+  .self-pad-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .self-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 480px) {
+  header,
+  section {
+    padding: 16px 10px;
+  }
+
   .tab-nav {
-    padding-left: 10px;
-    padding-right: 10px;
+    padding: 0 6px;
+    gap: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .tab-btn {
-    padding: 0 10px;
+    flex-shrink: 0;
+    padding: 0 12px;
     font-size: 12px;
     height: 34px;
   }
 
   .controls {
-    gap: 8px;
-    padding: 8px 10px;
+    gap: 10px;
+    padding: 10px;
+    border-radius: 0 8px 8px 8px;
   }
 
   label {
     min-width: 0;
   }
+  input,
+  select,
+  button {
+    height: 44px;
+    font-size: 16px;
+  }
 
   .alliance-stats {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr 1fr;
   }
 
   .alliance-cards {
@@ -821,5 +881,110 @@ button.is-busy {
 
   .winbar-seg {
     font-size: 11px;
+  }
+
+  h1 {
+    font-size: 22px;
+  }
+
+  h2 {
+    font-size: 17px;
+  }
+
+  h3 {
+    font-size: 15px;
+  }
+
+  .prediction-head {
+    gap: 6px;
+  }
+
+  .match-tag,
+  .history-badge {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+
+  .chip {
+    font-size: 12px;
+    padding: 3px 8px;
+  }
+
+  .compare {
+    gap: 10px;
+  }
+
+  .compare-side {
+    padding: 10px 12px;
+  }
+
+  .compare-side h3 {
+    font-size: 14px;
+  }
+
+  .metric {
+    font-size: 13px;
+  }
+
+  .m-red,
+  .m-blue {
+    font-size: 16px;
+  }
+
+  .self-pad {
+    padding: 12px 14px;
+  }
+
+  .self-pad-team {
+    font-size: 22px;
+  }
+
+  .self-tile-value {
+    font-size: 18px;
+  }
+
+  .alliance-card-head h3 {
+    font-size: 14px;
+  }
+
+  .alliance-stat-value {
+    font-size: 16px;
+  }
+
+  .alliance-matchup {
+    font-size: 13px;
+  }
+
+  .event-suggestions {
+    max-height: 200px;
+  }
+
+  .event-suggestion {
+    padding: 10px;
+  }
+
+  .event-suggestion-key {
+    font-size: 12px;
+  }
+
+  .event-suggestion-name {
+    font-size: 11px;
+  }
+
+  .winner-callout {
+    font-size: 14px;
+  }
+
+  .teams {
+    font-size: 13px;
+  }
+
+  /* Make status inline to save vertical space */
+  #status,
+  #rolesStatus,
+  #picklistStatus,
+  #allianceStatus {
+    font-size: 12px;
+    min-width: 0;
   }
 }
