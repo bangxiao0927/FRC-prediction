@@ -28,6 +28,9 @@ fi
 echo "=== 3. Clone repo ==="
 if [ ! -d "$APP_DIR" ]; then
   git clone "$REPO_URL" "$APP_DIR"
+elif [ ! -d "$APP_DIR/.git" ]; then
+  echo "$APP_DIR exists but is not a git repository." >&2
+  exit 1
 fi
 cd "$APP_DIR"
 git pull origin main
