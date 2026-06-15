@@ -60,12 +60,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable frc-prediction
 sudo systemctl restart frc-prediction
 
-echo "=== 8. Nginx reverse proxy ==="
-sudo cp deploy/nginx-frc.conf /etc/nginx/sites-available/frc-prediction
-sudo sed -i "s|%USER%|$USER|g" /etc/nginx/sites-available/frc-prediction
-sudo ln -sf /etc/nginx/sites-available/frc-prediction /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-
 echo "=== Done ==="
 echo "Dashboard: http://$(hostname -I | awk '{print $1}')"
 echo "Check status: sudo systemctl status frc-prediction"
