@@ -61,6 +61,6 @@ sudo systemctl enable frc-prediction
 sudo systemctl restart frc-prediction
 
 echo "=== Done ==="
-echo "Dashboard: http://$(hostname -I | awk '{print $1}')"
+echo "Dashboard: http://$(hostname -I | awk '{print $1}'):8000"
 echo "Check status: sudo systemctl status frc-prediction"
 echo "Logs: sudo journalctl -u frc-prediction -f"
