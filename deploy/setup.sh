@@ -58,7 +58,7 @@ sudo sed -i "s|%USER%|$USER|g" /etc/systemd/system/frc-prediction.service
 sudo sed -i "s|%APP_DIR%|$APP_DIR|g" /etc/systemd/system/frc-prediction.service
 sudo systemctl daemon-reload
 sudo systemctl enable frc-prediction
-sudo systemctl start frc-prediction
+sudo systemctl restart frc-prediction
 
 echo "=== 8. Nginx reverse proxy ==="
 sudo cp deploy/nginx-frc.conf /etc/nginx/sites-available/frc-prediction
