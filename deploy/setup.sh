@@ -11,7 +11,7 @@ echo "=== 1. Install system packages ==="
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   build-essential cmake git curl zip unzip tar pkg-config \
-  python3 python3-pip python3-venv nginx
+  python3 python3-pip python3-venv
 
 echo "=== 2. Install vcpkg ==="
 if [ ! -d "$HOME/vcpkg" ]; then
