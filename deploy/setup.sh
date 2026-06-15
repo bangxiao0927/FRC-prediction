@@ -3,7 +3,8 @@
 # Run as the user who will own the service (not root).
 set -euo pipefail
 
-APP_DIR="$HOME/frc-prediction"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="${APP_DIR:-$(cd -- "$SCRIPT_DIR/.." && pwd)}"
 REPO_URL="https://github.com/bangxiao0927/FRC-prediction.git"
 
 echo "=== 1. Install system packages ==="
