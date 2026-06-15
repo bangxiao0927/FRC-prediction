@@ -33,7 +33,7 @@ elif [ ! -d "$APP_DIR/.git" ]; then
   exit 1
 fi
 cd "$APP_DIR"
-git pull origin main
+git pull --ff-only origin main
 
 echo "=== 4. Build C++ CLI ==="
 cmake -B build -S . \
