@@ -1,12 +1,25 @@
 services:
   app:
-    build: .
+    image: ghcr.io/bangxiao0927/FRC-prediction:latest
     ports:
       - "8000:8000"
     environment:
       - TBA_AUTH_KEY=${TBA_AUTH_KEY:-}
     volumes:
       - frc_data:/app/data
+    restart: unless-stopped
+
+  watchtower:
+    image: containrrr/watchtower
+    command:
+      - "--interval=120"
+      - "--cleanup"
+      - "--scope=watchtower-scope"
+      - "app"
+    labels:
+      - "com.centurylinklabs.watchtower.scope=watchtower-scope"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
 volumes:
