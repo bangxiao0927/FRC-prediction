@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/bangxiao0927/FRC-prediction:latest
+    image: ghcr.io/bangxiao0927/frc-prediction:latest
     ports:
       - "8000:8000"
     environment:
