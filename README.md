@@ -334,12 +334,13 @@ chmod +x deploy/setup.sh
 ./deploy/setup.sh
 ```
 
-This installs all dependencies, builds the CLI, creates a systemd service, and
-configures nginx as a reverse proxy. After setup:
+This installs all dependencies, builds the CLI, and creates a systemd service
+that serves the dashboard directly on port 8000. Open TCP port 8000 in your
+server firewall or cloud security group if you want external access. After setup:
 
 ```bash
 # Edit your TBA key
-nano ~/frc-prediction/config.json
+nano config.json
 
 # Restart the service
 sudo systemctl restart frc-prediction
@@ -348,7 +349,7 @@ sudo systemctl restart frc-prediction
 sudo journalctl -u frc-prediction -f
 ```
 
-Dashboard available at `http://<server-ip>`.
+Dashboard available at `http://<server-ip>:8000`.
 
 The dashboard provides:
 

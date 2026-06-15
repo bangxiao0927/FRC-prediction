@@ -3,14 +3,15 @@
 # Run as the user who will own the service (not root).
 set -euo pipefail
 
-APP_DIR="$HOME/frc-prediction"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="${APP_DIR:-$(cd -- "$SCRIPT_DIR/.." && pwd)}"
 REPO_URL="https://github.com/bangxiao0927/FRC-prediction.git"
 
 echo "=== 1. Install system packages ==="
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   build-essential cmake git curl zip unzip tar pkg-config \
-  python3 python3-pip python3-venv nginx
+  python3 python3-pip python3-venv
 
 echo "=== 2. Install vcpkg ==="
 if [ ! -d "$HOME/vcpkg" ]; then
@@ -27,9 +28,12 @@ fi
 echo "=== 3. Clone repo ==="
 if [ ! -d "$APP_DIR" ]; then
   git clone "$REPO_URL" "$APP_DIR"
+elif [ ! -d "$APP_DIR/.git" ]; then
+  echo "$APP_DIR exists but is not a git repository." >&2
+  exit 1
 fi
 cd "$APP_DIR"
-git pull origin main
+git pull --ff-only origin main
 
 echo "=== 4. Build C++ CLI ==="
 cmake -B build -S . \
@@ -54,15 +58,10 @@ sudo sed -i "s|%USER%|$USER|g" /etc/systemd/system/frc-prediction.service
 sudo sed -i "s|%APP_DIR%|$APP_DIR|g" /etc/systemd/system/frc-prediction.service
 sudo systemctl daemon-reload
 sudo systemctl enable frc-prediction
-sudo systemctl start frc-prediction
-
-echo "=== 8. Nginx reverse proxy ==="
-sudo cp deploy/nginx-frc.conf /etc/nginx/sites-available/frc-prediction
-sudo sed -i "s|%USER%|$USER|g" /etc/nginx/sites-available/frc-prediction
-sudo ln -sf /etc/nginx/sites-available/frc-prediction /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
+sudo systemctl restart frc-prediction
 
 echo "=== Done ==="
-echo "Dashboard: http://$(hostname -I | awk '{print $1}')"
+echo "Dashboard: http://$(hostname -I | awk '{print $1}'):8000"
 echo "Check status: sudo systemctl status frc-prediction"
 echo "Logs: sudo journalctl -u frc-prediction -f"
+echo "Open TCP port 8000 in your firewall or cloud security group if needed."
