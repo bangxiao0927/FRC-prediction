@@ -4,7 +4,7 @@ FROM ubuntu:24.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake git curl zip unzip tar pkg-config \
+    build-essential ca-certificates cmake git curl zip unzip tar pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Install vcpkg
