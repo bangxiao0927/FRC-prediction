@@ -7,6 +7,8 @@ services:
       - TBA_AUTH_KEY=${TBA_AUTH_KEY:-}
     volumes:
       - frc_data:/app/data
+    labels:
+      - "com.centurylinklabs.watchtower.scope=watchtower-scope"
     restart: unless-stopped
 
   watchtower:

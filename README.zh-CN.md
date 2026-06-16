@@ -1,5 +1,8 @@
 # FRC Prediction
 
+[![CI](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/ci.yml/badge.svg)](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/ci.yml)
+[![CD](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/cd.yml/badge.svg)](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/cd.yml)
+
 FRC Prediction 是一个面向 FRC 赛事的数据预测与选队辅助工具。项目目标是在 qualification 阶段实时预测比赛胜负概率，并在 elimination/alliance selection 阶段根据队伍表现推荐 picklist 和联盟组合。
 
 **语言**：中文（本页），英文版请见 [README](README.md)。
@@ -69,7 +72,11 @@ CLI 的 `--picklist` 会根据资格赛表现给队伍打分排序，综合三�
 
 ```text
 .
+├── .github/workflows/
 ├── CMakeLists.txt
+├── Dockerfile
+├── docker-compose.yml
+├── deploy/
 ├── ISSUES.md
 ├── LICENSE
 ├── PLAN.md
@@ -149,7 +156,12 @@ cp config.example.json config.json
   "confidence_match_count": 6,
   "score_diff_scale": 30.0,
   "sigmoid_scale": 1.0,
-  "model_version": "baseline-v1"
+  "model_version": "baseline-v1",
+  "use_opr": true,
+  "use_history": false,
+  "history_auto_matches": 4,
+  "history_teleop_matches": 8,
+  "history_endgame_matches": 6
 }
 ```
 
@@ -164,6 +176,14 @@ cp config.example.json config.json
 cmake -B build -S . \
   -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 cmake --build build
+```
+
+运行测试（CI 会在 push/PR 时运行）：
+
+```bash
+ctest --test-dir build --output-on-failure
+pip install -r requirements-dev.txt
+python -m pytest tests/test_app.py -q
 ```
 
 ### 4. 运行
@@ -192,14 +212,71 @@ python app.py
 3. 浏览器打开 `http://127.0.0.1:5001`，输入赛事 key（可选填一场比赛），点击 **Run**。
    网页会自动帮你跑 CLI，不用手动生成数据文件。
 
+### Docker 部署
+
+适合服务器或不想在本机安装 vcpkg 的快速部署方式：
+
+```bash
+export TBA_AUTH_KEY=your_key_here
+docker compose up -d
+```
+
+`docker-compose.yml` 默认使用已经发布到 GHCR 的镜像
+`ghcr.io/bangxiao0927/frc-prediction:latest`，把 Dashboard 暴露在 `8000` 端口，
+并用 Docker volume 持久化 `/app/data`。Compose 里也包含 Watchtower，新的
+`latest` 镜像发布后可以自动更新 `app` 容器。
+
+如果想手动本地构建镜像：
+
+```bash
+docker build -t frc-prediction .
+docker run -d -p 8000:8000 -e TBA_AUTH_KEY=your_key -v frc_data:/app/data frc-prediction
+```
+
+### Ubuntu 服务器部署（bare-metal）
+
+Ubuntu 22.04 / 24.04 可以直接运行安装脚本：
+
+```bash
+git clone https://github.com/bangxiao0927/FRC-prediction.git
+cd FRC-prediction
+chmod +x deploy/setup.sh
+./deploy/setup.sh
+```
+
+脚本会安装依赖、构建 CLI，并创建 systemd 服务。服务会直接监听 `0.0.0.0:8000`。
+如果需要外网访问，请在服务器防火墙或云安全组中放行 TCP `8000`。
+
+```bash
+# 编辑 TBA key
+nano config.json
+
+# 重启服务
+sudo systemctl restart frc-prediction
+
+# 查看日志
+sudo journalctl -u frc-prediction -f
+```
+
+Dashboard 地址：`http://<server-ip>:8000`。
+
+### CI/CD 与 Release
+
+- CI 会在 push/PR 时运行 C++ 单元测试和 Flask endpoint 测试。
+- CD 会在 `main` 每次更新后构建 Docker 镜像并推送到 GHCR，标签包括 `latest`、`main` 和短 SHA。
+- 形如 `v*` 的版本 tag 会额外构建 release binary，并创建 GitHub Release，附件包含 `frc_prediction`。
+
 网页功能：
 
 - **胜率进度条** + 左红右蓝的联盟对比（预计得分、胜率、置信度、平均比赛数）。
 - **Team Stats** 表格和图表；选中比赛的队伍会被红/蓝高亮，并在图表上方列出其均分。
 - **比赛简写**：可直接输入 `3`、`qm3`、`sf2m1`，不用写完整 key。
 - **自动刷新**：可配置间隔，赛事进行中保持预测更新。
-- **Picklist 区块**：选择策略（balanced/offense/consistency）、排除已选队伍，一键生成排名表 + 图表。
-  复用上方的 Event 和 Match 输入（Match 作为“截止到该场”的 cutoff）。
+- **Picklist 区块**：选择策略（balanced/offense/consistency）、排除已选队伍，一键生成排名表和图表。Match 字段可作为“截止到该场”的 cutoff。
+- **History 开关**：把跨赛事历史表现融合进预测，也可以只指定部分队伍使用历史数据。
+- **Team Roles 区块**：显示每队 offense / auto / teleop / endgame 和防守 DPR，并标出 primary role。
+- **Alliance Evaluator**：输入自选联盟和可选对手，得到 OPR 预测分、synergy 分、阶段能力、最佳防守和胜率。
+- **赛事下拉选择**：选择 Year 后从 TBA 拉取 Event；Match、队伍选择器、exclude/history teams 自动基于真实赛程和队伍名单填充。
 
 示例：
 
@@ -211,6 +288,10 @@ python app.py
 ./build/frc_prediction --event 2024casj --stats --top 10
 ./build/frc_prediction --event 2024casj --stats-json --top 10
 ./build/frc_prediction --event 2024casj --stats --top 10 --stats-csv data/stats.csv
+./build/frc_prediction --event 2024casj --roles --top 10
+./build/frc_prediction --event 2024casj --roles --json --before qm40
+./build/frc_prediction --event 2024casj --alliance frc1678,frc604,frc841
+./build/frc_prediction --event 2024casj --alliance frc1678,frc604,frc841 --vs frc581,frc987,frc100
 ./build/frc_prediction --event 2024casj --predict 2024casj_qm1
 ./build/frc_prediction --event 2024casj --predict-upcoming
 ./build/frc_prediction --event 2024casj --predict-upcoming --json
@@ -219,17 +300,22 @@ python app.py
 ./build/frc_prediction --event 2024casj --evaluate --phase qm
 ./build/frc_prediction --event 2024casj --evaluate --phase elim --eval-json data/eval.json
 ./build/frc_prediction --event 2024casj --evaluate --phase all --eval-csv data/eval.csv
+./build/frc_prediction --event 2024cacc --evaluate --phase qm --use-history
 ./build/frc_prediction --event 2024casj --picklist frc254 --top 24 --strategy balanced
-
-当使用 --json 且未指定 --output 时，默认输出路径：
-
+./build/frc_prediction --event 2024casj --picklist frc254 --top 24
+./build/frc_prediction --event 2024casj --picklist frc254 --strategy offense --exclude 1678,254
+./build/frc_prediction --event 2024casj --picklist frc254 --before qm40 --json
+./build/frc_prediction --event 2024casj --picklist frc254 --picklist-csv data/picklist.csv
 ```
+
+当使用 `--json` 且未指定 `--output` 时，默认输出路径：
+
+```text
 data/predictions/<match_key>.json
 ```
 
 预测输出包含队伍数量、联盟平均比赛数，以及相对赛场均分的调整值。
 资格赛预测只使用资格赛比赛；淘汰赛预测使用资格赛加已完成的淘汰赛。
-```
 
 ## 开发路线
 
@@ -245,6 +331,16 @@ data/predictions/<match_key>.json
 - [x] 离线回放评估 (`--evaluate`) 与跨赛事历史融合 (`--use-history`)
 - [x] 队伍角色分析、联盟组合评估，CLI JSON/CSV 输出
 - [x] Flask Web Dashboard
+- [x] Docker/GHCR CD 与服务器部署文档
+
+## 完成标准 (MVP)
+
+项目达到 MVP 完成状态需要满足：
+
+- CLI 可以预测资格赛、生成 picklist，并运行 `--evaluate` 回放评估。
+- Flask Dashboard 可以端到端运行同样的预测、picklist、roles 和 alliance workflow。
+- C++ 与 Flask 测试通过，或者 `main` 分支 CI 为绿色。
+- CD 可以发布 `docker compose` 使用的 GHCR 镜像。
 
 ## 待办事项
 

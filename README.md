@@ -1,6 +1,7 @@
 # FRC Prediction
 
 [![CI](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/ci.yml/badge.svg)](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/ci.yml)
+[![CD](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/cd.yml/badge.svg)](https://github.com/bangxiao0927/FRC-prediction/actions/workflows/cd.yml)
 
 FRC Prediction is a data-driven assistant for FRC events. The goal is to deliver real-time win probability predictions during qualification matches and provide picklist/alliance recommendations for elimination and alliance selection.
 
@@ -75,7 +76,11 @@ already-picked teams, and `--before MATCH_KEY` to rank as of a point in the even
 
 ```text
 .
+├── .github/workflows/
 ├── CMakeLists.txt
+├── Dockerfile
+├── docker-compose.yml
+├── deploy/
 ├── ISSUES.md
 ├── LICENSE
 ├── PLAN.md
@@ -154,7 +159,11 @@ Edit `config.json`:
   "score_diff_scale": 30.0,
   "sigmoid_scale": 1.0,
   "model_version": "baseline-v1",
-  "use_opr": true
+  "use_opr": true,
+  "use_history": false,
+  "history_auto_matches": 4,
+  "history_teleop_matches": 8,
+  "history_endgame_matches": 6
 }
 ```
 
@@ -312,16 +321,25 @@ export TBA_AUTH_KEY=your_key_here
 docker compose up -d
 ```
 
-The dashboard will be available at `http://<server>:8000`. The image builds
-the C++ CLI from source and serves the Flask app with gunicorn. Data is
-persisted in a Docker volume.
+`docker-compose.yml` uses the published GHCR image
+`ghcr.io/bangxiao0927/frc-prediction:latest`, exposes the dashboard on port
+`8000`, persists `/app/data` in a Docker volume, and starts Watchtower so the
+`app` container can update when a new `latest` image is pushed.
 
-Manual build without compose:
+Manual local build without compose:
 
 ```bash
 docker build -t frc-prediction .
 docker run -d -p 8000:8000 -e TBA_AUTH_KEY=your_key -v frc_data:/app/data frc-prediction
 ```
+
+### CI/CD and Releases
+
+- CI runs the C++ unit tests and Flask endpoint tests on pushes and PRs.
+- CD builds and pushes Docker images to GHCR on every `main` push with `latest`,
+  `main`, and short-SHA tags.
+- Version tags matching `v*` also build the release binary and create a GitHub
+  Release containing `frc_prediction`.
 
 ### Ubuntu Server Deployment (bare-metal)
 
@@ -406,8 +424,9 @@ Examples:
 ./build/frc_prediction --event 2024casj --picklist frc254 --strategy offense --exclude 1678,254
 ./build/frc_prediction --event 2024casj --picklist frc254 --before qm40 --json
 ./build/frc_prediction --event 2024casj --picklist frc254 --picklist-csv data/picklist.csv
+```
 
-Default prediction output path when using --json without --output:
+Default prediction output path when using `--json` without `--output`:
 
 ```
 data/predictions/<match_key>.json
@@ -415,7 +434,6 @@ data/predictions/<match_key>.json
 
 Prediction outputs now include team counts, average matches per alliance, and adjusted averages relative to the event.
 Qualification predictions use qualification matches only; elimination predictions use qualification plus played elimination matches.
-```
 
 ## Roadmap
 
@@ -440,6 +458,7 @@ This project is considered "done" for MVP when all of these are true:
   `--evaluate` backtests.
 - The Flask dashboard can run those same workflows end-to-end.
 - C++ and Flask tests pass locally (or CI is green on the main branch).
+- CD can publish the Docker image used by `docker compose` deployments.
 
 ## Open Issues
 
