@@ -777,10 +777,15 @@ button.is-busy {
     grid-template-columns: 1fr;
   }
   .metric {
-    flex-direction: column;
+    grid-template-columns: 1fr;
     gap: 4px;
   }
+  .m-red,
+  .m-blue {
+    text-align: center;
+  }
   .m-label {
+    text-align: center;
     order: -1;
   }
 
