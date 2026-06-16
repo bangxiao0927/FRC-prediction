@@ -15,6 +15,7 @@ ENV VCPKG_ROOT=/vcpkg
 WORKDIR /app
 COPY vcpkg.json CMakeLists.txt ./
 COPY src/ ./src/
+COPY tests/ ./tests/
 
 # Build the CLI binary
 RUN cmake -B build -S . \
